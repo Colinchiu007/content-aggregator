@@ -1,0 +1,97 @@
+# Content Aggregator 配置示例
+# 复制此文件为 config.yaml 并填入实际值
+# secrets (api_key 等) 建议通过环境变量设置
+
+# ==================== LLM 配置 ====================
+llm:
+  # provider: deepseek / openai / qwen
+  provider: "deepseek"
+  
+  # 模型选择
+  model: "deepseek-chat"
+  
+  # API Key - 建议通过环境变量设置: ${LLM_API_KEY}
+  # 或直接填入（仅本地使用）: "sk-xxx"
+  api_key: "${LLM_API_KEY}"
+  
+  # API 地址（可选）
+  base_url: "https://api.deepseek.com"
+  
+  # 生成参数
+  max_tokens: 4096
+  temperature: 0.7
+  timeout: 120
+  
+  # 并发限制
+  max_concurrency: 3
+
+# ==================== HTTP 配置 ====================
+http:
+  timeout: 30
+  max_retries: 3
+  # 代理地址（可选，留空则直连）
+  proxy: ""
+
+# ==================== 数据库配置 ====================
+database:
+  path: "./data/content.db"
+
+# ==================== 导出配置 ====================
+export:
+  output_dir: "./output/exports"
+  default_format: "markdown"
+  filename_template: "{title}_{date}.{ext}"
+
+# ==================== RSS 源配置 ====================
+sources:
+  # 阮一峰网络日志
+  - name: "ruanyifeng"
+    url: "http://feeds.feedburner.com/ruanyifeng"
+    enabled: true
+    rewrite:
+      strategy: "PARAPHRASE"
+      # 可覆盖全局 rewrite 配置
+      
+  # 科技爱好者周刊
+  - name: "weekly"
+    url: "https://github.com/ruanyf/weekly/commits.atom"
+    enabled: false
+    rewrite:
+      strategy: "SUMMARIZE"
+
+  # 添加更多源...
+  # - name: "source-name"
+  #   url: "https://example.com/rss.xml"
+  #   enabled: true
+
+# ==================== 改写配置 ====================
+rewrite:
+  # 默认策略: SUMMARIZE / STYLE_TRANSFER / PARAPHRASE / REWRITE / EXPAND
+  strategy: "PARAPHRASE"
+  
+  # 提示词模板（可选，高级用户定制）
+  prompt_template: |
+    请将以下文章进行改写，要求：
+    1. 保持原文核心观点不变
+    2. 语言风格更加生动、通俗易懂
+    3. 适当加入个人见解
+    4. 删除广告和无关内容
+
+    原文：
+    {content}
+
+    请直接输出改写后的文章，不要添加任何说明。
+
+# ==================== 格式化配置 ====================
+formatter:
+  # Markdown 配置
+  markdown:
+    include_metadata: true
+    metadata_fields: ["title", "author", "source", "date", "tags"]
+  
+  # HTML 配置（微信内联样式）
+  html:
+    use_inline_styles: true
+    font_size: 17
+    line_height: 1.75
+    font_family: "Helvetica Neue, Helvetica, Arial, sans-serif"
