@@ -74,15 +74,20 @@ class RSSCollector:
         # }
     """
 
-    def __init__(self, url: str, **kwargs):
+    def __init__(self, url: str, name: str | None = None, **kwargs):
         """
         初始化采集器
 
         Args:
             url: RSS URL
+            name: 采集器名称（可选）
             **kwargs: 配置参数（timeout, max_items, proxy）
         """
-        self.config = CollectorConfig(url=url, **kwargs)
+        self.name = name or "RSS Feed"
+        # Filter out non-Config fields
+        config_kwargs = {k: v for k, v in kwargs.items() 
+                      if k in ('timeout', 'max_items', 'proxy')}
+        self.config = CollectorConfig(url=url, **config_kwargs)
 
     def collect(self) -> dict[str, Any]:
         """
