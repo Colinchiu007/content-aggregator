@@ -25,7 +25,7 @@ from typing import Any
 from loguru import logger
 
 from content_aggregator.models import Content, Article
-from content_aggregator.sources.rss import RSSSource, SourceConfig
+from content_aggregator.sources.rss import RSSCollector
 from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
 from content_aggregator.processors.formatter import ContentFormatter
 from content_aggregator.exporters import Exporter
@@ -62,11 +62,14 @@ class ContentPipeline:
                 - llm: LLM配置
                 - sources: 数据源配置
                 - export: 导出配置
+                - http: HTTP配置（包含proxy）
         """
         self.config = config
         self.llm_config = config.get("llm", {})
         self.export_config = config.get("export", {})
+        self.http_config = config.get("http", {})
         self.output_dir = self.export_config.get("output_dir", "./output/exports")
+        self.proxy = self.http_config.get("proxy")
 
         # 初始化组件
         self.rewrite_processor: RewriteProcessor | None = None
@@ -97,14 +100,14 @@ class ContentPipeline:
         """
         logger.info(f"Processing URL: {url}")
 
-        # 创建RSS源
+        # 创建RSS源（传入代理配置）
         source_config = SourceConfig(
             id=str(uuid.uuid4()),
             name="custom_rss",
             source_type="rss",
             config={"url": url}
         )
-        source = RSSSource(source_config)
+        source = RSSSource(source_config, proxy=self.proxy)
 
         # 采集
         result = await source.collect()

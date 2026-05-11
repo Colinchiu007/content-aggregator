@@ -7,6 +7,7 @@ import feedparser
 from datetime import datetime
 from typing import Any
 import uuid
+import httpx
 
 from loguru import logger
 
@@ -16,6 +17,10 @@ from content_aggregator.models import Content
 
 class RSSSource(BaseSource):
     """RSS 数据源"""
+
+    def __init__(self, config: SourceConfig, proxy: str | None = None):
+        super().__init__(config)
+        self.proxy = proxy
 
     async def connect(self) -> bool:
         """RSS 不需要持久连接"""
@@ -64,12 +69,34 @@ class RSSSource(BaseSource):
         }
 
     async def _fetch_feed(self, url: str) -> list[Content]:
-        """获取单个 RSS 源"""
+        """获取单个 RSS 源（支持代理）"""
         loop = asyncio.get_event_loop()
-        feed = await loop.run_in_executor(None, feedparser.parse, url)
 
+        # 使用 httpx 下载（支持代理）
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, proxy=self.proxy) as client:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+            try:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                feed_data = response.text
+            except Exception as e:
+                logger.error(f"HTTP fetch failed: {e}")
+                # Fallback: 使用 feedparser 直接解析（无代理）
+                feed = await loop.run_in_executor(None, feedparser.parse, url)
+                if not feed.entries:
+                    raise e
+                return self._parse_entries(feed.entries, url)
+
+        # 解析 feed
+        feed = await loop.run_in_executor(None, feedparser.parse, feed_data)
+        return self._parse_entries(feed.entries, url)
+
+    def _parse_entries(self, entries, url: str) -> list[Content]:
+        """解析 RSS 条目"""
         contents = []
-        for entry in feed.entries:
+        for entry in entries:
             try:
                 # 解析发布日期
                 published_at = None
@@ -157,8 +184,17 @@ class RSSSource(BaseSource):
             return TestResult(success=False, message="No URLs configured")
 
         try:
+            # 使用 httpx 测试
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, proxy=self.proxy) as client:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
+                response = await client.get(urls[0], headers=headers)
+                response.raise_for_status()
+                feed_data = response.text
+
             loop = asyncio.get_event_loop()
-            feed = await loop.run_in_executor(None, feedparser.parse, urls[0])
+            feed = await loop.run_in_executor(None, feedparser.parse, feed_data)
 
             if feed.bozo:
                 return TestResult(
