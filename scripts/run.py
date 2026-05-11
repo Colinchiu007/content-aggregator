@@ -1,30 +1,56 @@
 """
-Content Aggregator - 测试脚本
+Content Aggregator - 命令行工具
 
 用法：
-    python scripts/run.py --url "https://example.com/rss.xml" --format markdown
-    python scripts/run.py --url "https://example.com/rss.xml" --format html
-    python scripts/run.py --url "https://example.com/rss.xml" --format json
+    # 基础用法
+    python scripts/run.py --url "https://example.com/rss.xml"
+
+    # 指定导出格式（可多个）
+    python scripts/run.py --url "https://example.com/rss.xml" --format markdown --format html
+
+    # 批量处理（从文件读取 URL）
+    python scripts/run.py --file urls.txt
+
+    # 跳过 AI 改写
+    python scripts/run.py --url "https://example.com/rss.xml" --no-rewrite
+
+    # 限制采集数量
+    python scripts/run.py --url "https://example.com/rss.xml" --limit 5
+
+    # 指定改写策略
+    python scripts/run.py --url "https://example.com/rss.xml" --strategy SUMMARIZE
+
+    # 指定输出目录
+    python scripts/run.py --url "https://example.com/rss.xml" --output ./my-output
+
+    # 安静模式
+    python scripts/run.py --url "https://example.com/rss.xml" --quiet
 """
 
 import asyncio
 import argparse
 import sys
+import time
 from pathlib import Path
 
 # 添加 src 到路径
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from loguru import logger
 from content_aggregator.workflows.pipeline import ContentPipeline
 
 
-def load_config():
+def load_config(config_path: str | None = None) -> dict:
     """加载配置文件"""
     import yaml
 
-    config_path = Path(__file__).parent.parent / "config" / "config.yaml"
-    if config_path.exists():
-        with open(config_path, encoding="utf-8") as f:
+    if config_path:
+        path = Path(config_path)
+    else:
+        path = Path(__file__).parent.parent / "config" / "config.yaml"
+
+    if path.exists():
+        with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     # 默认配置
@@ -34,61 +60,258 @@ def load_config():
             "api_key": "",  # 需要用户填入
             "model": "deepseek-chat",
             "base_url": "https://api.deepseek.com",
-            "max_tokens": 2000,
-            "temperature": 0.7,
-            "max_concurrency": 3,
+            "max_tokens": 4096,
+            "timeout": 120,
+            "retry": 3,
         },
         "export": {
             "output_dir": "./output/exports",
-            "default_format": "markdown",
         },
     }
 
 
+async def process_single(
+    pipeline: ContentPipeline,
+    url: str,
+    formats: list[str],
+    rewrite: bool,
+    verbose: bool
+) -> dict:
+    """
+    处理单个 URL
+
+    参数：
+        pipeline: ContentPipeline 实例
+        url: RSS URL
+        formats: 导出格式列表
+        rewrite: 是否改写
+        verbose: 是否显示详细信息
+
+    返回：
+        结果字典
+    """
+    start = time.time()
+
+    if verbose:
+        print(f"\n{'=' * 60}")
+        print(f"Processing: {url}")
+        print(f"{'=' * 60}")
+
+    # 采集 + 改写
+    article = await pipeline.process_url(url, rewrite=rewrite)
+
+    if not article:
+        return {
+            "url": url,
+            "success": False,
+            "error": "Failed to process URL",
+        }
+
+    if verbose:
+        print(f"\n[OK] Title: {article.title}")
+        print(f"      Word count: {article.word_count}")
+        if rewrite:
+            print(f"      Rewrite: {article.rewrite_status}")
+
+    # 导出
+    paths = []
+    for fmt in formats:
+        try:
+            path = pipeline.exporter.export(article, fmt)
+            paths.append(path)
+            if verbose:
+                print(f"      Exported ({fmt}): {path}")
+        except Exception as e:
+            logger.error(f"Export failed ({fmt}): {e}")
+            if verbose:
+                print(f"      [ERROR] Export failed ({fmt}): {e}")
+
+    elapsed = time.time() - start
+
+    return {
+        "url": url,
+        "success": True,
+        "article": article,
+        "paths": paths,
+        "elapsed": elapsed,
+    }
+
+
+async def process_batch(
+    pipeline: ContentPipeline,
+    urls: list[str],
+    formats: list[str],
+    rewrite: bool,
+    limit: int | None,
+    verbose: bool
+) -> list[dict]:
+    """
+    批量处理 URL
+
+    参数：
+        pipeline: ContentPipeline 实例
+        urls: URL 列表
+        formats: 导出格式列表
+        rewrite: 是否改写
+        limit: 限制数量
+        verbose: 是否显示详细信息
+
+    返回：
+        结果列表
+    """
+    if limit:
+        urls = urls[:limit]
+
+    print(f"\nTotal URLs to process: {len(urls)}")
+    print(f"Formats: {', '.join(formats)}")
+    print(f"Rewrite: {rewrite}")
+    print(f"{'=' * 60}")
+
+    results = []
+    for i, url in enumerate(urls, 1):
+        print(f"\n[{i}/{len(urls)}] Processing...")
+        result = await process_single(pipeline, url, formats, rewrite, verbose)
+        results.append(result)
+
+    return results
+
+
+def print_summary(results: list[dict], elapsed_total: float):
+    """打印汇总信息"""
+    success = sum(1 for r in results if r["success"])
+    failed = len(results) - success
+    total_files = sum(len(r.get("paths", [])) for r in results if r["success"])
+
+    print(f"\n{'=' * 60}")
+    print(f"Summary")
+    print(f"{'=' * 60}")
+    print(f"  Total: {len(results)}")
+    print(f"  Success: {success}")
+    print(f"  Failed: {failed}")
+    print(f"  Files exported: {total_files}")
+    print(f"  Total time: {elapsed_total:.2f}s")
+    print(f"{'=' * 60}")
+
+
 async def main():
-    parser = argparse.ArgumentParser(description="Content Aggregator CLI")
-    parser.add_argument("--url", type=str, required=True, help="RSS URL to process")
-    parser.add_argument("--format", type=str, default="markdown",
-                        choices=["markdown", "html", "json", "txt", "xiaohongshu"],
-                        help="Export format")
-    parser.add_argument("--no-rewrite", action="store_true", help="Skip AI rewrite")
-    parser.add_argument("--config", type=str, help="Config file path")
+    parser = argparse.ArgumentParser(
+        description="Content Aggregator CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例:
+  # 基础用法
+  python scripts/run.py --url "https://example.com/rss.xml"
+
+  # 批量处理
+  python scripts/run.py --file urls.txt --format markdown --format html
+
+  # 跳过改写
+  python scripts/run.py --url "https://example.com/rss.xml" --no-rewrite
+
+  # 限制数量
+  python scripts/run.py --file urls.txt --limit 10
+"""
+    )
+
+    # 输入源
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument("--url", type=str, help="单个 RSS URL")
+    input_group.add_argument("--file", type=str, help="包含多个 URL 的文件（每行一个）")
+
+    # 导出格式
+    parser.add_argument(
+        "--format",
+        type=str,
+        action="append",
+        choices=["markdown", "md", "html", "wechat", "json", "json-compact", "txt", "xiaohongshu", "xhs"],
+        default=None,
+        help="导出格式（可多次指定）"
+    )
+
+    # 处理选项
+    parser.add_argument("--no-rewrite", action="store_true", help="跳过 AI 改写")
+    parser.add_argument("--limit", type=int, help="限制处理数量")
+    parser.add_argument("--strategy", type=str,
+                        choices=["SUMMARIZE", "STYLE_TRANSFER", "PARAPHRASE", "REWRITE", "EXPAND"],
+                        help="改写策略（需要 API 支持）")
+
+    # 输出选项
+    parser.add_argument("--output", type=str, help="输出目录")
+    parser.add_argument("--config", type=str, help="配置文件路径")
+
+    # 日志选项
+    parser.add_argument("--quiet", action="store_true", help="安静模式（不显示详细信息）")
+    parser.add_argument("--verbose", action="store_true", help="详细模式（显示更多信息）")
 
     args = parser.parse_args()
 
     # 加载配置
-    if args.config:
-        import yaml
-        with open(args.config, encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-    else:
-        config = load_config()
+    config = load_config(args.config)
+
+    # 覆盖配置
+    if args.output:
+        config.setdefault("export", {})["output_dir"] = args.output
+
+    if args.strategy:
+        config.setdefault("rewrite", {})["default_strategy"] = args.strategy
 
     # 检查 API key
-    if not config.get("llm", {}).get("api_key"):
+    if not args.no_rewrite and not config.get("llm", {}).get("api_key"):
         print("Error: LLM API key not configured")
-        print("Please set api_key in config/config.yaml")
+        print("Please set api_key in config/config.yaml or use --no-rewrite")
         sys.exit(1)
 
-    # 处理
-    async with ContentPipeline(config) as pipeline:
-        print(f"Processing: {args.url}")
+    # 确定导出格式
+    formats = args.format if args.format else ["markdown"]
+    # 去重
+    formats = list(dict.fromkeys(formats))
 
-        article = await pipeline.process_url(
-            args.url,
-            rewrite=not args.no_rewrite
+    # 采集 URL 列表
+    urls = []
+    if args.url:
+        urls = [args.url]
+    elif args.file:
+        file_path = Path(args.file)
+        if not file_path.exists():
+            print(f"Error: File not found: {args.file}")
+            sys.exit(1)
+        with open(file_path, encoding="utf-8") as f:
+            urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+
+    if not urls:
+        print("Error: No URLs to process")
+        sys.exit(1)
+
+    # 配置日志
+    if args.quiet:
+        logger.remove()
+        logger.add(sys.stderr, level="WARNING")
+    elif args.verbose:
+        logger.remove()
+        logger.add(sys.stderr, level="DEBUG")
+
+    # 处理
+    start_total = time.time()
+
+    async with ContentPipeline(config) as pipeline:
+        results = await process_batch(
+            pipeline=pipeline,
+            urls=urls,
+            formats=formats,
+            rewrite=not args.no_rewrite,
+            limit=args.limit,
+            verbose=not args.quiet
         )
 
-        if not article:
-            print("Failed to process URL")
-            sys.exit(1)
+    elapsed_total = time.time() - start_total
 
-        print(f"Article: {article.title}")
-        print(f"Word count: {article.word_count}")
+    # 汇总
+    if not args.quiet:
+        print_summary(results, elapsed_total)
 
-        # 导出
-        path = pipeline.exporter.export(article, args.format)
-        print(f"Exported to: {path}")
+    # 退出码
+    failed = sum(1 for r in results if not r["success"])
+    sys.exit(failed)
 
 
 if __name__ == "__main__":
