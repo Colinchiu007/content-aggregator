@@ -61,19 +61,20 @@ def test_pipeline():
         print("  [SKIP] No API key")
         rewritten = article.content
     else:
-        # Create config dict
+        # Create config dict (nested under 'llm' key)
         llm_config = {
-            "provider": "deepseek",
-            "api_key": api_key,
-            "model": "deepseek-chat"
+            "llm": {
+                "provider": "deepseek",
+                "api_key": api_key,
+                "model": "deepseek-chat"
+            }
         }
-        processor = RewriteProcessor(config=llm_config)
         
         # Import Content and RewriteConfig
         from content_aggregator.models import Content as ContentModel
         from content_aggregator.processors.rewrite.rewriter import RewriteConfig, RewriteStrategy
         
-        # Create Content object (import aliased to avoid conflict with Content from sources)
+        # Create Content object
         content_obj = ContentModel(
             id=str(uuid.uuid4()),
             source_id="rss_ruanyifeng",
@@ -86,8 +87,12 @@ def test_pipeline():
         # Create RewriteConfig
         rewrite_cfg = RewriteConfig(strategy=RewriteStrategy.REWRITE)
         
-        # Run rewrite
-        result = asyncio.run(processor.rewrite(content_obj, rewrite_cfg))
+        # Run rewrite in async context
+        async def run_rewrite():
+            async with RewriteProcessor(config=llm_config) as processor:
+                return await processor.rewrite(content_obj, rewrite_cfg)
+        
+        result = asyncio.run(run_rewrite())
         
         if result.success:
             print(f"  [OK] Rewritten: {len(result.rewritten_content)} chars")
