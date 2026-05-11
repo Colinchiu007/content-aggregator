@@ -110,7 +110,7 @@ def test_pipeline():
     article.content = rewritten
     
     exporter = Exporter("./output/exports")
-    paths = exporter.export_batch([article], ["markdown", "html", "json"])
+    paths = exporter.export_batch([article], ["markdown", "html", "json", "txt", "xiaohongshu"])
     
     print(f"  Exported: {len(paths)} files")
     for p in paths:
