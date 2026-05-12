@@ -19,6 +19,7 @@ from content_aggregator.exporters.html import to_html
 from content_aggregator.exporters.json import to_json, to_json_compact
 from content_aggregator.exporters.xiaohongshu import to_xiaohongshu
 from content_aggregator.exporters.txt import to_txt
+from content_aggregator.exporters.pdf_exporter import PDFExporter, PDFConfig, PDFExportResult
 
 if TYPE_CHECKING:
     from content_aggregator.models import Article
@@ -49,6 +50,7 @@ class Exporter:
         "txt": to_txt,
         "xiaohongshu": to_xiaohongshu,
         "xhs": to_xiaohongshu,
+        "pdf": None,  # 单独处理，使用 PDFExporter
     }
 
     # 扩展名映射
@@ -62,6 +64,7 @@ class Exporter:
         "txt": "txt",
         "xiaohongshu": "md",
         "xhs": "md",
+        "pdf": "pdf",
     }
 
     def __init__(self, output_dir: str = "./output/exports"):
@@ -74,15 +77,30 @@ class Exporter:
 
         参数：
             article: Article 对象
-            format_type: 格式类型
+            format_type: 格式类型（markdown/md, html, json, txt, xiaohongshu/xhs, pdf）
 
         返回：
             文件路径
         """
+        ext = self.EXT_MAP.get(format_type.lower(), "md")
+
+        # PDF 格式单独处理
+        if format_type.lower() == "pdf":
+            from content_aggregator.exporters.pdf_exporter import PDFExporter
+            safe_title = re.sub(r'[\\/:*?"<>|]', '_', article.title)[:50]
+            filename = f"{safe_title}.pdf"
+            filepath = self.output_dir / filename
+            exporter = PDFExporter()
+            result = exporter.export(article, str(filepath))
+            if result.success:
+                return result.file_path
+            else:
+                from loguru import logger
+                logger.error(f"PDF export failed: {result.error}")
+                raise RuntimeError(result.error)
+
         converter = self.CONVERTERS.get(format_type.lower(), to_markdown)
         content = converter(article)
-
-        ext = self.EXT_MAP.get(format_type.lower(), "md")
 
         # 文件名
         safe_title = re.sub(r'[\\/:*?"<>|]', '_', article.title)[:50]
@@ -138,6 +156,9 @@ class Exporter:
 
 __all__ = [
     "Exporter",
+    "PDFExporter",
+    "PDFConfig",
+    "PDFExportResult",
     "to_markdown",
     "to_html",
     "to_json",
