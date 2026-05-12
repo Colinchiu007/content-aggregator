@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% set active_page = 'dashboard' %}
+{% block title %}仪表盘 - Content Aggregator{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>📊 仪表盘</h1>
+    <button class="btn btn-success" onclick="startCollectAll()">🚀 全源采集</button>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-value">{{ total_articles }}</div>
+        <div class="stat-label">文章总数</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ configured_sources|length }}</div>
+        <div class="stat-label">已配置数据源</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ sources_stats|length }}</div>
+        <div class="stat-label">活跃来源</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ tasks|selectattr('status', 'eq', 'running')|list|length }}</div>
+        <div class="stat-label">运行中任务</div>
+    </div>
+</div>
+
+<div class="two-col">
+    <!-- 数据源状态 -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">🔌 数据源</span>
+            <a href="/sources" class="btn btn-outline btn-sm">管理</a>
+        </div>
+        {% if configured_sources %}
+        <div class="source-grid">
+            {% for src in configured_sources %}
+            <div class="source-card">
+                <h3>{{ src.label }}</h3>
+                <p>{{ src.count }} 个源已启用</p>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">
+            <div class="empty-icon">🔌</div>
+            <p>暂无已配置数据源</p>
+            <a href="/sources" class="btn btn-primary btn-sm" style="margin-top:12px">配置数据源</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- 实时任务 -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">⏳ 最近任务</span>
+            <a href="/tasks" class="btn btn-outline btn-sm">全部</a>
+        </div>
+        <div id="live-tasks">
+            {% for task in tasks %}
+            <div class="task-status" id="task-{{ task.id }}">
+                <span class="task-dot {{ task.status }}"></span>
+                <span>{{ task.description or task.type }}</span>
+                <span style="margin-left:auto;color:var(--text-muted);font-size:12px">
+                    {{ task.message[:50] }}
+                </span>
+            </div>
+            {% endfor %}
+            {% if not tasks %}
+            <div class="empty">
+                <p>暂无任务记录</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- 最近文章 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">📝 最近文章</span>
+        <a href="/articles" class="btn btn-outline btn-sm">查看全部</a>
+    </div>
+    {% if recent_articles %}
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>标题</th>
+                    <th>来源</th>
+                    <th>字数</th>
+                    <th>时间</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for article in recent_articles %}
+                <tr>
+                    <td><a href="/articles/{{ article.id }}" style="color:var(--primary);text-decoration:none">{{ truncate(article.title, 40) }}</a></td>
+                    <td><span class="badge badge-muted">{{ article.source }}</span></td>
+                    <td>{{ article.word_count or article.content|length }}</td>
+                    <td>{{ formatTime(article.collected_at or article.published_at) }}</td>
+                    <td><a href="/articles/{{ article.id }}" class="btn btn-outline btn-sm">详情</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty">
+        <div class="empty-icon">📝</div>
+        <p>暂无文章，点击「全源采集」开始</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 快速采集 -->
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">🔗 快速采集</span>
+    </div>
+    <form id="quick-collect" onsubmit="return quickCollect(event)">
+        <div style="display:flex;gap:12px;align-items:flex-end">
+            <div class="form-group" style="flex:1;margin:0">
+                <label class="form-label">输入 RSS URL</label>
+                <input class="form-input" name="url" placeholder="https://example.com/feed.xml" required>
+            </div>
+            <label class="form-check">
+                <input type="checkbox" name="rewrite" checked> 改写
+            </label>
+            <button type="submit" class="btn btn-primary">采集</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // WebSocket 任务更新
+    function onTaskUpdate(msg) {
+        const el = document.getElementById('task-' + msg.task_id);
+        if (el) {
+            const dot = el.querySelector('.task-dot');
+            dot.className = 'task-dot ' + msg.status;
+            const msgEl = el.querySelector('span:last-child');
+            msgEl.textContent = msg.message.slice(0, 50);
+        }
+        if (msg.status === 'done') showToast(msg.message, 'success');
+        if (msg.status === 'error') showToast(msg.message, 'error');
+    }
+
+    // 全源采集
+    async function startCollectAll() {
+        if (!confirm('确定开始全源采集？')) return;
+        const fd = new FormData();
+        fd.append('rewrite', 'true');
+        fd.append('formats', 'markdown');
+        const data = await apiPost('/api/collect/all', fd);
+        if (data.task_id) {
+            showToast('采集任务已启动', 'info');
+            setTimeout(() => location.reload(), 1000);
+        }
+    }
+
+    // 快速采集
+    async function quickCollect(e) {
+        e.preventDefault();
+        const form = e.target;
+        const fd = new FormData(form);
+        const data = await apiPost('/api/collect/url', fd);
+        if (data.task_id) {
+            showToast('采集任务已启动', 'info');
+            setTimeout(() => location.reload(), 1000);
+        }
+    }
+</script>
+{% endblock %}

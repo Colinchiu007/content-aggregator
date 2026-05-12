@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% set active_page = 'compose' %}
+{% block title %}手动输入 - Content Aggregator{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>✏️ 手动输入</h1>
+</div>
+
+<div class="card" style="max-width:800px">
+    <form id="compose-form" onsubmit="return handleCompose(event)">
+        <div class="form-group">
+            <label class="form-label">标题（可选）</label>
+            <input class="form-input" name="title" placeholder="输入文章标题...">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">内容</label>
+            <textarea class="form-textarea" name="content" placeholder="粘贴或输入文章内容..." required style="min-height:300px"></textarea>
+        </div>
+
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+            <div class="form-group" style="margin:0">
+                <label class="form-label">处理方式</label>
+                <select class="form-select" name="action" id="compose-action" onchange="toggleRewrite()">
+                    <option value="export">直接导出</option>
+                    <option value="rewrite">AI 改写后导出</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin:0" id="rewrite-option">
+                <label class="form-check">
+                    <input type="checkbox" name="rewrite_first" checked>
+                    <span style="font-size:14px">先改写再导出</span>
+                </label>
+            </div>
+
+            <div class="form-group" style="margin:0">
+                <label class="form-label">导出格式</label>
+                <select class="form-select" name="format_type">
+                    <option value="markdown">Markdown</option>
+                    <option value="html">HTML</option>
+                    <option value="json">JSON</option>
+                    <option value="txt">纯文本</option>
+                    <option value="xiaohongshu">小红书</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary" style="margin-top:18px">
+                🚀 处理
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- 任务状态 -->
+<div id="compose-status" style="margin-top:16px;display:none">
+    <div class="task-status" id="compose-task">
+        <span class="spinner"></span>
+        <span>处理中...</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleRewrite() {
+        const action = document.getElementById('compose-action').value;
+        document.getElementById('rewrite-option').style.display = action === 'export' ? 'block' : 'none';
+    }
+
+    async function handleCompose(e) {
+        e.preventDefault();
+        const form = e.target;
+        const fd = new FormData(form);
+
+        // 处理 action 字段
+        if (fd.get('action') === 'export' && fd.get('rewrite_first')) {
+            fd.set('action', 'rewrite');
+        }
+
+        document.getElementById('compose-status').style.display = 'block';
+        const data = await apiPost('/api/compose', fd);
+
+        if (data.task_id) {
+            showToast('任务已启动', 'info');
+            // 轮询任务状态
+            pollTask(data.task_id);
+        }
+    }
+
+    async function pollTask(taskId) {
+        const poll = async () => {
+            const resp = await fetch('/api/tasks/' + taskId);
+            const task = await resp.json();
+            const el = document.getElementById('compose-task');
+
+            if (task.status === 'done') {
+                el.innerHTML = `<span class="task-dot done"></span><span>${task.message}</span>`;
+                showToast(task.message, 'success');
+                return;
+            } else if (task.status === 'error') {
+                el.innerHTML = `<span class="task-dot error"></span><span>${task.message}</span>`;
+                showToast(task.message, 'error');
+                return;
+            } else {
+                el.querySelector('span:last-child').textContent = task.message || '处理中...';
+                setTimeout(poll, 2000);
+            }
+        };
+        setTimeout(poll, 1500);
+    }
+
+    // WebSocket 更新
+    function onTaskUpdate(msg) {
+        if (msg.status === 'done') {
+            const el = document.getElementById('compose-task');
+            el.innerHTML = `<span class="task-dot done"></span><span>${msg.message}</span>`;
+            showToast(msg.message, 'success');
+        }
+    }
+</script>
+{% endblock %}

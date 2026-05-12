@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% set active_page = 'articles' %}
+{% block title %}{{ article.title }} - Content Aggregator{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>{{ article.title or '无标题' }}</h1>
+        <div style="margin-top:8px;display:flex;gap:12px;align-items:center">
+            <span class="badge badge-muted">{{ article.source or '未知来源' }}</span>
+            {% if article.author %}<span style="font-size:13px;color:var(--text-muted)">by {{ article.author }}</span>{% endif %}
+            {% if article.word_count %}<span style="font-size:13px;color:var(--text-muted)">{{ article.word_count }} 字</span>{% endif %}
+            {% if article.published_at or article.collected_at %}
+            <span style="font-size:13px;color:var(--text-muted)">{{ formatTime(article.published_at or article.collected_at) }}</span>
+            {% endif %}
+        </div>
+    </div>
+    <div style="display:flex;gap:8px">
+        <button class="btn btn-warning" onclick="rewriteArticle()">✨ AI 改写</button>
+        <button class="btn btn-primary" onclick="exportArticle('markdown')">导出 MD</button>
+        <button class="btn btn-outline" onclick="exportArticle('html')">导出 HTML</button>
+    </div>
+</div>
+
+<!-- 原文链接 -->
+{% if article.source_url %}
+<div class="card" style="padding:12px 20px">
+    <span style="font-size:13px;color:var(--text-muted)">原文链接：</span>
+    <a href="{{ article.source_url }}" target="_blank" style="color:var(--primary);font-size:13px">{{ truncate(article.source_url, 80) }}</a>
+</div>
+{% endif %}
+
+<!-- 标签 -->
+{% if article.tags and article.tags|length > 0 %}
+<div style="margin-bottom:16px">
+    {% for tag in article.tags %}
+    <span class="tag">{{ tag }}</span>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- 正文 -->
+<div class="card">
+    {% if article.summary %}
+    <div style="padding:12px 16px;background:var(--bg);border-radius:6px;margin-bottom:16px;border-left:3px solid var(--primary)">
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">摘要</div>
+        <div style="font-size:14px">{{ article.summary }}</div>
+    </div>
+    {% endif %}
+
+    <div id="article-body" class="article-content">
+        <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:15px">{{ article.content }}</pre>
+    </div>
+
+    {% if article.content and article.content|length > 500 %}
+    <button class="btn btn-outline btn-sm" style="margin-top:12px" onclick="toggleContent()">
+        展开全文 ▼
+    </button>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleContent() {
+        const body = document.getElementById('article-body');
+        const btn = event.target;
+        body.classList.toggle('expanded');
+        btn.textContent = body.classList.contains('expanded') ? '收起 ▲' : '展开全文 ▼';
+    }
+
+    async function rewriteArticle() {
+        const fd = new FormData();
+        fd.append('article_id', '{{ article.id }}');
+        const data = await apiPost('/api/rewrite', fd);
+        if (data.task_id) {
+            showToast('改写任务已启动', 'info');
+        }
+    }
+
+    async function exportArticle(format) {
+        const resp = await fetch('/api/compose', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `title={{ article.title }}&content=${encodeURIComponent('{{ article.content }}')}&action=export&format_type=${format}`
+        });
+        const data = await resp.json();
+        if (data.task_id) showToast('导出任务已启动', 'info');
+    }
+</script>
+{% endblock %}

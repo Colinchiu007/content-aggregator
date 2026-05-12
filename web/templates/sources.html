@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% set active_page = 'sources' %}
+{% block title %}数据源管理 - Content Aggregator{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>🔌 数据源管理</h1>
+    <a href="/" class="btn btn-primary">🚀 去采集</a>
+</div>
+
+<div class="card" style="margin-bottom:20px">
+    <p style="color:var(--text-muted);font-size:14px">
+        数据源在 <code style="background:var(--bg);padding:2px 6px;border-radius:4px">config/config.yaml</code> 中配置。
+        修改配置后重启 Web 服务生效。未配置 API Key / Cookie 的数据源会自动跳过。
+    </p>
+</div>
+
+{% set source_info = {
+    'rss': {'icon': '📡', 'label': 'RSS 订阅', 'desc': '标准 RSS/Atom 订阅源，博客/新闻通用'},
+    'youtube': {'icon': '🎬', 'label': 'YouTube', 'desc': 'YouTube Data API v3，需要 API Key'},
+    'twitter': {'icon': '🐦', 'label': 'X (Twitter)', 'desc': 'Twitter API v2，需要 Bearer Token'},
+    'tiktok': {'icon': '🎵', 'label': 'TikTok', 'desc': 'TikTok Cookie API，需要登录 Cookie'},
+    'douyin': {'icon': '📱', 'label': '抖音', 'desc': '抖音开放平台或 Cookie，需要 Cookie/Client Key'},
+    'xiaohongshu': {'icon': '📕', 'label': '小红书', 'desc': '小红书笔记采集，需要登录 Cookie'},
+    'wechat': {'icon': '💬', 'label': '微信公众号', 'desc': '搜狗微信搜索或新榜 API'},
+    'sitemap': {'icon': '🗺️', 'label': 'Sitemap', 'desc': '网站 sitemap.xml 自动发现'},
+    'api': {'icon': '🔌', 'label': '自定义 API', 'desc': '通用 REST/GraphQL API，JSONPath 提取'},
+} %}
+
+<div class="source-grid">
+    {% for src_type, src_cfg in sources_config.items() %}
+    {% set info = source_info.get(src_type, {'icon': '📦', 'label': src_type, 'desc': ''}) %}
+    <div class="source-card">
+        <h3>{{ info.icon }} {{ info.label }}</h3>
+        <p>{{ info.desc }}</p>
+        <div style="margin-top:10px">
+            {% if src_type == 'rss' %}
+                {% if src_cfg is mapping %}
+                    {% set enabled_count = src_cfg|selectattr('enabled', 'equalto', true)|list|length %}
+                    {% set total_count = src_cfg|length %}
+                {% elif src_cfg is string %}
+                    {% set enabled_count = 1 %}
+                    {% set total_count = 1 %}
+                {% else %}
+                    {% set enabled_count = 0 %}
+                    {% set total_count = 0 %}
+                {% endif %}
+                <span class="badge badge-{{ 'success' if enabled_count > 0 else 'muted' }}">
+                    {{ enabled_count }} 个源已启用
+                </span>
+            {% else %}
+                {% set has_key = false %}
+                {% for key in ['api_key', 'bearer_token', 'session_id', 'cookie', 'client_key', 'xhs_token'] %}
+                    {% if src_cfg.get(key) and src_cfg.get(key) != 'null' %}
+                        {% set has_key = true %}
+                    {% endif %}
+                {% endfor %}
+                {% if has_key %}
+                <span class="badge badge-success">已配置凭证</span>
+                {% else %}
+                <span class="badge badge-warning">未配置凭证</span>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- 配置预览 -->
+<div class="card" style="margin-top:24px">
+    <div class="card-header">
+        <span class="card-title">📄 config.yaml 源配置预览</span>
+    </div>
+    <pre style="background:var(--bg);padding:16px;border-radius:6px;font-size:13px;overflow-x:auto;max-height:400px;overflow-y:auto">
+sources:
+    rss:
+      - name: "阮一峰网络日志"
+        url: "http://feeds.feedburner.com/ruanyifeng"
+        enabled: true
+    youtube:
+      api_key: "***"  # 填入 YouTube Data API v3 Key
+      channels: []
+    # ... 更多配置见 config/config.yaml
+    </pre>
+</div>
+{% endblock %}
