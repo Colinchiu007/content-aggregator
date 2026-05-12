@@ -174,10 +174,12 @@ content-aggregator/
 │   │   ├── __init__.py
 │   │   ├── rewrite.py         # AI 改写（6 种策略，支持自定义提示词）
 │   │   ├── formatter.py       # 内容格式化 / HTML 转换
+│   │   ├── translator.py     # 多语言翻译（10 种语言）
 │   │   └── filter/            # 内容过滤器
 │   │       ├── __init__.py
 │   │       ├── sensitive.py   # 敏感词过滤（DFA）
 │   │       └── dedup.py       # 相似度去重（SimHash+MinHash）
+│   ├── scheduler.py           # 定时任务调度器（INTERVAL/CRON/ONCE）
 │   ├── exporters/             # 多格式导出器
 │   │   ├── __init__.py
 │   │   ├── markdown_exporter.py
@@ -224,13 +226,13 @@ content-aggregator/
 ### Phase 3 - 扩展
 - [x] 更多采集源 - Web采集器已完成，微信公众号/知乎待添加
 - [x] 内容过滤（敏感词+去重）
+- [x] 多语言翻译（10 种语言：EN/JA/KO/FR/DE/ES/PT/RU/AR/VI）
 - [ ] SEO优化（关键词/描述/标签自动生成）
-- [ ] 多语言翻译（中译英/日等）
 
 ### Phase 4 - 集成
 - [ ] Skill封装完善
 - [ ] 其他Skill调用示例
-- [ ] Scheduler 定时任务调度
+- [x] Scheduler 定时任务调度（INTERVAL/CRON/ONCE 三种类型）
 - [ ] 微信公众号草稿发布（待账号权限确认）
 
 ### 已知 Bug（已修复）
