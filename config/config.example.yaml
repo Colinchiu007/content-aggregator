@@ -84,6 +84,54 @@ rewrite:
       你是一个专业的文章改写助手。请对原文进行深度改写...
       （留空则使用内置默认值）
 
+# ==================== 翻译配置 ====================
+translation:
+  # 默认目标语言: en / ja / ko / fr / de / es / pt / ru / ar / vi
+  default_language: "en"
+  # 语气风格: formal / casual / academic
+  tone: "casual"
+  # 是否保留原文 Markdown 格式
+  preserve_formatting: true
+  # 自定义翻译提示词（覆盖默认，优先级最高）
+  # custom_prompt: |
+  #   你的自定义翻译提示词...
+
+# ==================== 定时任务配置 ====================
+scheduler:
+  # 是否启用定时任务
+  enabled: false
+  # 最大并发任务数
+  max_concurrent_tasks: 5
+  # 任务列表
+  tasks:
+    # 示例：每 6 小时执行一次 RSS 采集
+    # - name: "rss_hourly"
+    #   type: "interval"
+    #   interval_seconds: 21600
+    #   enabled: true
+    #   sources: ["ruanyifeng"]
+    #   export_formats: ["markdown", "html"]
+
+    # 示例：每天早上 9 点执行
+    # - name: "daily_morning"
+    #   type: "cron"
+    #   cron: "0 9 * * *"
+    #   enabled: true
+    #   sources: ["ruanyifeng", "weekly"]
+    #   rewrite:
+    #     strategy: "PARAPHRASE"
+    #   export_formats: ["markdown"]
+
+    # 示例：工作日 18:00 执行
+    # - name: "workday_evening"
+    #   type: "cron"
+    #   cron: "0 18 * * 1-5"
+    #   enabled: true
+    #   sources: ["ruanyifeng"]
+    #   translate:
+    #     language: "en"
+    #   export_formats: ["markdown"]
+
 # ==================== 格式化配置 ====================
 formatter:
   # Markdown 配置
