@@ -214,9 +214,10 @@ async def main():
     )
 
     # 输入源
-    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group = parser.add_mutually_exclusive_group(required=False)
     input_group.add_argument("--url", type=str, help="单个 RSS URL")
     input_group.add_argument("--file", type=str, help="包含多个 URL 的文件（每行一个）")
+    input_group.add_argument("--all-sources", action="store_true", help="采集 config.yaml 中所有已启用的数据源")
 
     # 导出格式
     parser.add_argument(
@@ -230,7 +231,10 @@ async def main():
 
     # 处理选项
     parser.add_argument("--no-rewrite", action="store_true", help="跳过 AI 改写")
+    parser.add_argument("--translate", type=str, nargs="?", const="EN",
+                        help="翻译为指定语言（如 EN / JA / KO），不传参数默认英文")
     parser.add_argument("--limit", type=int, help="限制处理数量")
+    parser.add_argument("--limit-per-source", type=int, default=20, help="每个数据源最大采集数（默认 20）")
     parser.add_argument("--strategy", type=str,
                         choices=["SUMMARIZE", "STYLE_TRANSFER", "PARAPHRASE", "REWRITE", "EXPAND"],
                         help="改写策略（需要 API 支持）")
@@ -266,6 +270,36 @@ async def main():
     # 去重
     formats = list(dict.fromkeys(formats))
 
+    # 检查 API key
+    if not args.no_rewrite and not config.get("llm", {}).get("api_key"):
+        if not args.all_sources:
+            print("Error: LLM API key not configured")
+            print("Please set api_key in config/config.yaml or use --no-rewrite")
+            sys.exit(1)
+        else:
+            print("[WARN] LLM API key not configured, skipping rewrite")
+
+    # ---- 全源采集模式 ----
+    if args.all_sources:
+        print("\n📦 全源采集模式")
+        print(f"  格式: {', '.join(formats)}")
+        print(f"  改写: {not args.no_rewrite}")
+        print(f"  翻译: {args.translate or '关闭'}")
+        print(f"{'=' * 60}")
+
+        start_total = time.time()
+        async with ContentPipeline(config) as pipeline:
+            result = await pipeline.process_all_sources(
+                rewrite=not args.no_rewrite,
+                translate=bool(args.translate),
+                target_language=args.translate,
+                formats=formats,
+                limit_per_source=args.limit_per_source,
+            )
+        sys.exit(0)
+
+    # ---- 单 URL / 文件模式 ----
+
     # 采集 URL 列表
     urls = []
     if args.url:
@@ -280,6 +314,7 @@ async def main():
 
     if not urls:
         print("Error: No URLs to process")
+        print("提示: 使用 --all-sources 采集所有已配置的数据源")
         sys.exit(1)
 
     # 配置日志
