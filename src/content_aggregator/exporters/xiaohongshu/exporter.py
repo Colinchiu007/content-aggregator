@@ -61,8 +61,8 @@ def to_xiaohongshu(article: "Article") -> str:
     lines.append("---\n")
     if article.source:
         lines.append(f"📖 来源: {article.source}")
-    if article.url:
-        lines.append(f"🔗 原文: {article.url}")
+    if article.source_url:
+        lines.append(f"🔗 原文: {article.source_url}")
 
     return "\n".join(lines)
 

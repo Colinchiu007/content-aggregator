@@ -57,7 +57,7 @@ class Article:
         word_count: 字数
         metadata: 元数据
     """
-    id: str
+    id: str = ""
     title: str = ""
     original_title: str = ""
     source: str = ""

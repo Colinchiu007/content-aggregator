@@ -159,7 +159,10 @@ Output: Only the translated content, no explanations."""
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.client:
-            await self.client.aclose()
+            try:
+                await self.client.aclose()
+            except asyncio.CancelledError:
+                pass  # Client closed due to cancellation, ignore
 
     async def translate(
         self,

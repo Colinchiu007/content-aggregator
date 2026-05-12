@@ -27,7 +27,6 @@ from loguru import logger
 from content_aggregator.models import Content, Article
 from content_aggregator.sources.rss import RSSCollector
 from content_aggregator.sources.base import BaseSource, SourceConfig
-from content_aggregator.sources.rss import RSSSource as RSSCollector
 from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
 from content_aggregator.processors.formatter import ContentFormatter
 from content_aggregator.exporters import Exporter
@@ -109,16 +108,16 @@ class ContentPipeline:
             source_type="rss",
             config={"url": url}
         )
-        source = RSSSource(source_config, proxy=self.proxy)
+        source = RSSCollector(url=url, name="custom_rss", proxy=self.proxy)
 
         # 采集
-        result = await source.collect()
-        if not result.get("success") or not result.get("contents"):
+        result = await source.collect_async()
+        if not result.get("success") or not result.get("data"):
             logger.error(f"No content collected from {url}")
             return None
 
         # 取第一篇
-        content = result["contents"][0]
+        content = result["data"][0]
         logger.info(f"Collected: {content.title}")
 
         # 改写
@@ -152,8 +151,16 @@ class ContentPipeline:
                 # 改写失败，返回原始内容
                 return Article.from_content(content)
 
-        # 不改写，直接返回
-        return Article.from_content(content)
+        # 不改写，直接构建 Article
+        return Article(
+            id=content.id if hasattr(content, 'id') and content.id else str(uuid.uuid4()),
+            title=content.title,
+            content=content.content,
+            source=content.source_id if hasattr(content, 'source_id') else getattr(content, 'name', '') or '',
+            source_url=content.url if hasattr(content, 'url') else '',
+            published_at=getattr(content, 'published_at', None),
+            author=getattr(content, 'author', None) or getattr(content, 'name', None) or '',
+        )
 
     async def process_contents(self, contents: list[Content], rewrite: bool = True) -> list[Article]:
         """
