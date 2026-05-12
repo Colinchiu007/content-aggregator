@@ -66,21 +66,23 @@ sources:
 
 # ==================== 改写配置 ====================
 rewrite:
-  # 默认策略: SUMMARIZE / STYLE_TRANSFER / PARAPHRASE / REWRITE / EXPAND
+  # 默认策略: SUMMARIZE / STYLE_TRANSFER / PARAPHRASE / REWRITE / EXPAND / SHORT_VIDEO
   strategy: "PARAPHRASE"
-  
-  # 提示词模板（可选，高级用户定制）
-  prompt_template: |
-    请将以下文章进行改写，要求：
-    1. 保持原文核心观点不变
-    2. 语言风格更加生动、通俗易懂
-    3. 适当加入个人见解
-    4. 删除广告和无关内容
 
-    原文：
-    {content}
+  # 自定义提示词模板（可选）
+  # 策略 key 与 strategy 枚举值对应:
+  #   summarize / style_transfer / paraphrase / rewrite / expand / short_video
+  # 优先级: RewriteConfig.custom_prompt > prompts[strategy] > 内置默认值
+  prompts:
+    # 示例：短视频文案改写（这是默认值，可以自定义覆盖）
+    short_video: |
+      根据下面要求改写：
+      你是一名专业的短视频文案仿写专家...
 
-    请直接输出改写后的文章，不要添加任何说明。
+    # 示例：自定义深度改写（替换内置默认值）
+    rewrite: |
+      你是一个专业的文章改写助手。请对原文进行深度改写...
+      （留空则使用内置默认值）
 
 # ==================== 格式化配置 ====================
 formatter:

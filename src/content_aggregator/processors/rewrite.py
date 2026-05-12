@@ -23,6 +23,19 @@ class RewriteStrategy(Enum):
     PARAPHRASE = "paraphrase"      # 伪原创
     REWRITE = "rewrite"            # 深度改写
     EXPAND = "expand"              # 内容扩展
+    SHORT_VIDEO = "short_video"    # 短视频文案仿写
+
+    @property
+    def display_name(self) -> str:
+        names = {
+            self.SUMMARIZE: "摘要提取",
+            self.STYLE_TRANSFER: "风格迁移",
+            self.PARAPHRASE: "伪原创",
+            self.REWRITE: "深度改写",
+            self.EXPAND: "内容扩展",
+            self.SHORT_VIDEO: "短视频文案",
+        }
+        return names.get(self, self.value)
 
 
 @dataclass
@@ -34,6 +47,8 @@ class RewriteConfig:
     min_word_count: int = 500
     max_word_count: int = 5000
     target_word_count: int = 3000
+    # 自定义提示词（最高优先级，覆盖策略默认提示词和配置文件提示词）
+    custom_prompt: str | None = None
 
 
 @dataclass
@@ -57,9 +72,14 @@ class RewriteProcessor:
     使用示例：
         async with RewriteProcessor(config) as processor:
             result = await processor.rewrite(content, config)
+
+    提示词优先级：
+        1. RewriteConfig.custom_prompt（最高）
+        2. config['rewrite']['prompts'][strategy]（配置文件）
+        3. SYSTEM_PROMPTS（内置默认值）
     """
 
-    SYSTEM_PROMPTS = {
+    DEFAULT_PROMPTS = {
         RewriteStrategy.SUMMARIZE: """你是一个专业的文章摘要助手。请根据提供的文章内容,提取核心要点,生成简洁准确的摘要。
 要求：
 1. 保留关键信息和核心观点
@@ -94,12 +114,77 @@ class RewriteProcessor:
 2. 添加相关的背景信息和行业数据
 3. 引入更多实际案例
 4. 使用中文输出""",
+
+        RewriteStrategy.SHORT_VIDEO: """根据下面要求改写：
+你是一名专业的短视频文案仿写专家，具备以下核心能力：
+- 精准识别爆款短视频文案的选题角度和内容结构
+- 保持40%-50%内容相似度的改写技巧
+- 自然融入用户提供的替换信息
+- 完美复现短视频特有的口语化、情感化表达风格
+
+📝 任务指令模板
+
+【仿写核心要求】
+1. 选题一致性
+  - 完全保持原文案的核心主题方向
+  - 继承相同的价值主张和情感基调
+2. 结构还原度
+  - 段落数量和组织顺序完全一致
+  - 保持相同的叙事逻辑（如：问题→经历→反思）
+  - 保留原有的内容结构元素
+3. 内容相似度控制
+  - 保持40%-50%的内容相似度
+  - 关键信息点必须保留
+  - 通过以下方式实现差异化：
+  - 调整具体描述用语
+  - 改变事例细节但保留核心情节
+  - 使用同义词替换但保持语义一致
+  - 调整句子结构但传达相同信息
+
+🔧 具体操作步骤
+请严格按以下流程执行：
+
+第一步：结构分析
+  - 识别原文案的段落划分（如：个人经历→问题出现→反思总结）
+  - 标记关键结构节点（转折点、情感高潮、结论部分）
+第二步：内容要素提取
+  - 核心主题：[例如：个人经历分享]
+  - 情感主线：[例如：愧疚→反思→建议]
+  - 关键信息点：[列出5-8个必须保留的核心信息]
+  - 结构特色：[如：时间顺序叙事、问题解决方案等]
+第三步：相似度控制改写
+  - 保留50%核心内容：关键情节、主要观点、重要数据
+  - 改写50%内容：具体描述、次要细节、表达方式
+  - 检查标准：读起来像同一主题但不是同一篇文章
+第四步：风格优化
+  - 保持口语化表达和情感化语言
+  - 确保最终文案长度与原文案相近
+
+📋 输出格式要求
+请输出仿写后的完整文案，包含：
+  - 保持语句通顺，没有错别字
+  - 严格保持原段落结构
+  - 自然换行
+  - 结尾保留类似的祝福或总结语
+  - 文案里禁止出现任何emoji表情
+
+【限制】
+严禁你在输出的结果开头出现相应我的任何回答，比如"好的，这是为您优化的短视频文案，严格遵循您的指令和要求："这样类似的话，我需要你直接输出结果。""",
     }
 
     def __init__(self, config: dict[str, Any]):
+        """
+        初始化处理器
+
+        参数：
+            config: 配置字典，支持从 config['rewrite']['prompts'] 覆盖提示词模板
+        """
         self.config = config
         self.llm_config = config.get("llm", {})
+        self.rewrite_config = config.get("rewrite", {})
         self.client: httpx.AsyncClient | None = None
+        # 从配置文件加载自定义提示词（覆盖默认值）
+        self._custom_prompts: dict[str, str] = self.rewrite_config.get("prompts", {})
 
     async def __aenter__(self):
         timeout = self.llm_config.get("timeout", 120)
@@ -173,12 +258,33 @@ class RewriteProcessor:
 
         return processed_results
 
+    def _get_prompt(self, strategy: RewriteStrategy) -> str:
+        """
+        获取指定策略的提示词
+
+        优先级：配置文件 > 默认值
+        """
+        strategy_key = strategy.value
+        if strategy_key in self._custom_prompts and self._custom_prompts[strategy_key].strip():
+            return self._custom_prompts[strategy_key]
+        return self.DEFAULT_PROMPTS.get(strategy, self.DEFAULT_PROMPTS[RewriteStrategy.REWRITE])
+
     def _build_prompt(self, content: Content, config: RewriteConfig) -> str:
         """构建完整的提示词"""
-        system_prompt = self.SYSTEM_PROMPTS.get(
-            config.strategy,
-            self.SYSTEM_PROMPTS[RewriteStrategy.REWRITE]
-        )
+        # 1. 优先使用 RewriteConfig 中的自定义提示词
+        if config.custom_prompt:
+            user_prompt = f"""请处理以下文章:
+
+【标题】
+{content.title}
+
+【正文】
+{content.content[:10000]}
+"""
+            return f"{config.custom_prompt}\n\n{user_prompt}"
+
+        # 2. 从配置或默认值获取提示词
+        system_prompt = self._get_prompt(config.strategy)
 
         # 添加风格配置
         if config.style_config:
