@@ -45,12 +45,17 @@ def expand_env_vars(value: str | Any) -> Any:
         return value
     
     # 匹配 ${VAR_NAME} 或 ${VAR_NAME:-default}
-    pattern = r'\$\{([^}:]+)(?::-([^}]*))?\}'
+    # 注意：排除 } 但允许 :，因为变量名可能含冒号（如 SQLALCHEMY_DATABASE_URL）
+    pattern = r'\$\{([^}]+)\}'
     
     def replacer(match):
-        var_name = match.group(1)
-        default = match.group(2) or ""
-        return os.environ.get(var_name, default)
+        full = match.group(1)
+        # 支持 ${VAR_NAME:-default} 语法
+        if ':-' in full:
+            var_name, default = full.split(':-', 1)
+        else:
+            var_name, default = full, ""
+        return os.environ.get(var_name.strip(), default)
     
     return re.sub(pattern, replacer, value)
 

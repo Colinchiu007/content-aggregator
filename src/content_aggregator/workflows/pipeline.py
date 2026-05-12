@@ -26,6 +26,8 @@ from loguru import logger
 
 from content_aggregator.models import Content, Article
 from content_aggregator.sources.rss import RSSCollector
+from content_aggregator.sources.base import BaseSource, SourceConfig
+from content_aggregator.sources.rss import RSSSource as RSSCollector
 from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
 from content_aggregator.processors.formatter import ContentFormatter
 from content_aggregator.exporters import Exporter
