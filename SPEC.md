@@ -51,7 +51,7 @@
 | JSON (结构化) | Skill间调用 | ✅ |
 | TXT (纯文本) | 配音/摘要 | ✅ |
 | 小红书格式 | 图文平台 | ✅ |
-| PDF | 存档/分享 | 🔜 |
+| PDF | 存档/分享 | ✅（需 pip install reportlab）|
 | 微信公众号 HTML | 公众号直接用 | ✅ |
 
 ### 2.4 Skill封装
@@ -182,7 +182,7 @@ content-aggregator/
 │   ├── scheduler.py           # 定时任务调度器（INTERVAL/CRON/ONCE）
 │   ├── exporters/             # 多格式导出器
 │   │   ├── __init__.py
-│   │   ├── markdown_exporter.py
+│   │   ├── pdf_exporter.py        # PDF 导出（中文/微信样式支持）
 │   │   ├── html_exporter.py
 │   │   ├── json_exporter.py
 │   │   ├── txt_exporter.py
