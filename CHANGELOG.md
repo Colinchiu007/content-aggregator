@@ -21,6 +21,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `config/loader.py` 支持 `${VAR}` 和 `${VAR:-default}` 语法
 - **SQLite Storage** - 结构化数据持久化（`storage/database.py`）
 - **Xiaohongshu Exporter** - 小红书格式导出器
+- **Multi-language Translation** (`processors/translator.py`)
+  - 支持 10 种语言：EN/JA/KO/FR/DE/ES/PT/RU/AR/VI
+  - 每种语言内置专属翻译提示词（非通用提示词）
+  - 支持语气风格（formal/casual/academic）和格式保留
+  - `TranslatorProcessor` 与 `RewriteProcessor` 共用 LLM 配置
+- **Scheduler** (`scheduler.py`)
+  - 三种调度类型：INTERVAL（固定间隔）/ CRON（Cron 表达式）/ ONCE（一次性）
+  - 完整 Cron 解析器（*/n、范围、多值、步进）
+  - 自动重试机制（默认 3 次）+ 执行历史记录（最近 100 条）
+- **PDF Exporter** (`exporters/pdf_exporter.py`)
+  - Markdown 内容解析（标题/列表/引用/代码块）
+  - 中文字体支持（可配置字体路径）
+  - 微信公众号 HTML 直接转换
+  - 可配置页面大小（A4/Letter/Legal）、字体、边距
+  - 需安装：`pip install reportlab`
 
 ### Fixed
 - `config/loader.py`：正则 `[^}:]` 改为 `[^}]`，支持含冒号的变量名（如 `DATABASE_URL`）
