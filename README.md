@@ -1,46 +1,93 @@
 # Content Aggregator
 
-内容聚合与改写平台 - 将互联网热文转化为标准化内容资产
+**内容聚合与改写平台** — 将互联网优质内容转化为标准化内容资产，支持多源采集、AI 深度改写、多格式导出，赋能内容创作者高效运营多平台。
 
-## 功能
+---
 
-- 📡 **多源采集**：RSS、自定义URL
-- ✍️ **AI改写**：DeepSeek/OpenAI/Qwen 支持
-- 📤 **多格式导出**：Markdown、HTML、JSON、TXT、小红书格式
-- 🔧 **Skill封装**：Python模块化设计，供其他Skill调用
+## 核心特性
+
+### 📡 多源内容采集
+- **RSS 订阅源**：支持代理，自动解析 Feed 内容
+- **自定义 URL 采集**：指定任意网页链接进行采集
+- **多源聚合**：配置多个 RSS 源，支持按关键词过滤
+
+### ✍️ AI 智能改写（6 种策略）
+内置六种改写策略，支持通过 `config.yaml` 自定义提示词模板：
+
+| 策略 | 说明 |
+|------|------|
+| `SUMMARIZE` | 摘要提取，200–500 字核心要点 |
+| `STYLE_TRANSFER` | 风格迁移，转换为指定文案风格 |
+| `PARAPHRASE` | 伪原创，同义替换保持语义一致 |
+| `REWRITE` | 深度改写，重新组织结构与表达 |
+| `EXPAND` | 内容扩展，补充背景/案例/数据 |
+| `SHORT_VIDEO` | 短视频文案仿写，保持 40–50% 相似度 |
+
+支持 DeepSeek / OpenAI / Qwen 等主流 LLM API，可通过配置文件灵活切换。
+
+### 🔍 内容过滤与质量控制
+- **敏感词过滤**：DFA 算法，支持自定义词库和白名单
+- **内容去重**：SimHash + MinHash 相似度检测，防止重复发布
+
+### 📤 多格式导出
+| 格式 | 说明 | 适用场景 |
+|------|------|----------|
+| Markdown | 标准结构化文档 | 通用存档、二次编辑 |
+| HTML | 微信内联样式 | 公众号直接粘贴发布 |
+| JSON | 完整结构化数据 | Skill 间调用、程序处理 |
+| TXT | 纯文本 | 配音、摘要、纯内容 |
+| 小红书 | emoji + 标签格式 | 小红书平台发布 |
+
+### 💻 CLI 命令行工具
+```bash
+# 单条 RSS 处理
+python scripts/run.py --url "https://example.com/rss.xml" --format markdown
+
+# 批量处理（从文件读取 URL）
+python scripts/run.py --file urls.txt --format markdown --format html
+
+# 指定改写策略
+python scripts/run.py --url "..." --strategy SHORT_VIDEO
+
+# 跳过 AI 改写（仅采集）
+python scripts/run.py --url "..." --no-rewrite --format html
+```
+
+---
 
 ## 快速开始
 
-### 安装
-
+### 1. 安装依赖
 ```bash
 pip install -r requirements.txt
 ```
 
-### 配置
+### 2. 配置
+```bash
+cp config/config.example.yaml config/config.yaml
+# 编辑 config.yaml，填入 LLM API Key
+```
 
-编辑 `config/config.yaml`，填入 LLM API Key：
-
+**最小配置示例（`config.yaml`）：**
 ```yaml
 llm:
-  api_key: "sk-your-api-key"
-  provider: "deepseek"  # deepseek / openai / qwen
+  provider: "deepseek"
+  api_key: "${LLM_API_KEY}"   # 或直接填入 "sk-xxx"
   model: "deepseek-chat"
+  base_url: "https://api.deepseek.com"
+
+export:
+  output_dir: "./output/exports"
 ```
 
-### 使用
-
-#### 命令行
-
+### 3. 运行
 ```bash
-# 处理 RSS 并导出 Markdown
-python scripts/run.py --url "https://example.com/rss.xml" --format markdown
-
-# 不使用 AI 改写（仅采集）
-python scripts/run.py --url "https://example.com/rss.xml" --no-rewrite --format html
+python scripts/run.py --url "https://feeds.feedburner.com/ruanyifeng" --format markdown
 ```
 
-#### Python 模块
+---
+
+## Python 模块调用
 
 ```python
 import asyncio
@@ -50,7 +97,7 @@ config = {
     "llm": {
         "provider": "deepseek",
         "api_key": "sk-xxx",
-        "model": "deepseek-chat"
+        "model": "deepseek-chat",
     },
     "export": {
         "output_dir": "./output/exports"
@@ -59,44 +106,74 @@ config = {
 
 async def main():
     async with ContentPipeline(config) as pipeline:
-        # 处理单个URL
         article = await pipeline.process_url("https://example.com/rss.xml")
-        
-        # 导出
         path = pipeline.exporter.export(article, "markdown")
-        print(f"Exported to: {path}")
+        print(f"导出至: {path}")
 
 asyncio.run(main())
 ```
+
+### 高级：自定义提示词
+```python
+from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
+
+# 方式一：代码级自定义（最高优先级）
+config = RewriteConfig(
+    strategy=RewriteStrategy.SHORT_VIDEO,
+    custom_prompt="你的自定义提示词内容..."
+)
+
+# 方式二：配置文件覆盖（config.yaml）
+# rewrite:
+#   prompts:
+#     short_video: |
+#       你的自定义短视频改写提示词...
+```
+
+---
 
 ## 项目结构
 
 ```
 content-aggregator/
 ├── config/
-│   └── config.yaml       # 配置文件
+│   ├── config.yaml          # 运行配置
+│   └── config.example.yaml  # 配置示例
 ├── src/content_aggregator/
-│   ├── sources/          # 数据源（RSS等）
-│   ├── processors/       # 处理器（改写、格式化）
-│   ├── exporters/        # 导出器（多种格式）
-│   ├── workflows/        # 工作流（流水线）
-│   └── api/              # API接口
-├── output/exports/       # 导出目录
-├── tests/                # 测试
-├── scripts/              # 脚本
-├── SPEC.md               # 详细规格说明
-└── requirements.txt      # 依赖
+│   ├── sources/              # 数据采集
+│   │   └── rss.py           # RSS 采集器（含代理支持）
+│   ├── processors/           # 内容处理
+│   │   ├── rewrite.py       # AI 改写（6 种策略）
+│   │   ├── formatter.py     # 内容格式化
+│   │   └── filter/          # 内容过滤
+│   │       ├── sensitive.py # 敏感词过滤
+│   │       └── dedup.py     # 相似度去重
+│   ├── exporters/           # 多格式导出
+│   ├── storage/             # 数据持久化（SQLite）
+│   ├── workflows/           # 处理流水线
+│   └── models.py            # 数据模型
+├── scripts/                 # CLI 脚本与测试
+├── output/exports/          # 导出文件目录
+├── SPEC.md                  # 详细功能规格说明
+├── CHANGELOG.md             # 变更记录
+└── requirements.txt
 ```
 
-## 导出格式
+---
 
-| 格式 | 说明 | 用途 |
-|------|------|------|
-| Markdown | 标准Markdown | 通用文档 |
-| HTML | 微信内联样式 | 公众号直接用 |
-| JSON | 结构化数据 | Skill间调用 |
-| TXT | 纯文本 | 配音/摘要 |
-| 小红书 | 带emoji标签 | 小红书平台 |
+## 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| 语言 | Python 3.12+ |
+| HTTP | httpx（异步，代理支持）|
+| RSS 解析 | feedparser |
+| LLM | OpenAI 兼容 API |
+| 配置 | Pydantic v2 |
+| 数据库 | SQLite + aiosqlite |
+| 日志 | Loguru |
+
+---
 
 ## License
 

@@ -19,10 +19,28 @@
 
 ### 2.2 内容处理
 
-- [x] AI改写（DeepSeek/OpenAI/Qwen）
+- [x] AI改写（DeepSeek/OpenAI/Qwen，6 种策略）
+  - `SUMMARIZE`：摘要提取，200-500 字
+  - `STYLE_TRANSFER`：风格迁移
+  - `PARAPHRASE`：伪原创
+  - `REWRITE`：深度改写
+  - `EXPAND`：内容扩展
+  - `SHORT_VIDEO`：短视频文案仿写（40-50% 相似度）
 - [x] 内容过滤（敏感词、去重）
 - [ ] SEO优化
 - [ ] 多语言翻译
+
+### 2.3 内容过滤（已完成）
+
+- [x] 敏感词过滤：`processors/filter/sensitive.py`
+  - DFA 算法实现
+  - 支持自定义词库路径
+  - 支持白名单（跳过检测的词）
+  - 支持拼音混淆检测
+- [x] 相似度去重：`processors/filter/dedup.py`
+  - SimHash + MinHash 双重算法
+  - 支持阈值配置（默认 0.85）
+  - 可同时检测标题相似度和内容相似度
 
 ### 2.3 导出格式
 
@@ -34,6 +52,7 @@
 | TXT (纯文本) | 配音/摘要 | ✅ |
 | 小红书格式 | 图文平台 | ✅ |
 | PDF | 存档/分享 | 🔜 |
+| 微信公众号 HTML | 公众号直接用 | ✅ |
 
 ### 2.4 Skill封装
 
@@ -138,34 +157,46 @@ python -m content_aggregator --rewrite --input article.md --output ./output
 content-aggregator/
 ├── SPEC.md
 ├── README.md
+├── CHANGELOG.md
 ├── requirements.txt
 ├── pyproject.toml
 ├── config/
-│   └── config.yaml
+│   ├── config.yaml            # 运行配置（需手动创建）
+│   └── config.example.yaml    # 配置模板
 ├── src/content_aggregator/
 │   ├── __init__.py
+│   ├── models.py              # Content / Article 数据模型
 │   ├── sources/
 │   │   ├── __init__.py
-│   │   └── rss.py
+│   │   ├── base.py            # 数据源基类 / SourceConfig
+│   │   └── rss.py             # RSS 采集器（含代理支持）
 │   ├── processors/
 │   │   ├── __init__.py
-│   │   ├── rewrite.py
-│   │   └── formatter.py
-│   ├── exporters/
+│   │   ├── rewrite.py         # AI 改写（6 种策略，支持自定义提示词）
+│   │   ├── formatter.py       # 内容格式化 / HTML 转换
+│   │   └── filter/            # 内容过滤器
+│   │       ├── __init__.py
+│   │       ├── sensitive.py   # 敏感词过滤（DFA）
+│   │       └── dedup.py       # 相似度去重（SimHash+MinHash）
+│   ├── exporters/             # 多格式导出器
 │   │   ├── __init__.py
 │   │   ├── markdown_exporter.py
 │   │   ├── html_exporter.py
 │   │   ├── json_exporter.py
-│   │   └── txt_exporter.py
+│   │   ├── txt_exporter.py
+│   │   └── xiaohongshu_exporter.py
 │   ├── storage/
-│   │   └── database.py
+│   │   └── database.py        # SQLite 持久化
 │   ├── workflows/
-│   │   └── pipeline.py
+│   │   └── pipeline.py        # 内容处理流水线
 │   └── api/
-│       └── content_api.py
+│       └── content_api.py     # API 接口预留
+├── scripts/
+│   ├── run.py                 # CLI 主入口
+│   ├── test_*.py              # 各模块测试脚本
 ├── output/
-│   └── exports/
-└── tests/
+│   └── exports/               # 导出文件目录
+└── data/                     # 数据库存储目录
 ```
 
 ## 7. 与原项目(wechat-mp-automation)的关系
@@ -191,15 +222,24 @@ content-aggregator/
 - [ ] 配置管理优化
 
 ### Phase 3 - 扩展
-- [~] 更多采集源 - Web采集器已完成，微信公众号/知乎待添加
-- [ ] 内容过滤
-- [ ] SEO优化
-- [ ] 多语言翻译
+- [x] 更多采集源 - Web采集器已完成，微信公众号/知乎待添加
+- [x] 内容过滤（敏感词+去重）
+- [ ] SEO优化（关键词/描述/标签自动生成）
+- [ ] 多语言翻译（中译英/日等）
 
 ### Phase 4 - 集成
 - [ ] Skill封装完善
 - [ ] 其他Skill调用示例
-- [ ] 视频生成接口预留
+- [ ] Scheduler 定时任务调度
+- [ ] 微信公众号草稿发布（待账号权限确认）
+
+### 已知 Bug（已修复）
+- [x] config/loader.py：环境变量正则不支持含冒号变量名（如 DATABASE_URL）
+- [x] pipeline.py：缺少 SourceConfig/RewriteConfig/RewriteStrategy 导入
+
+### 配置化需求
+- [x] 改写提示词可配置（三级优先级：custom_prompt > config > 内置默认值）
+- [x] SHORT_VIDEO 短视频文案改写策略（内置默认提示词）
 
 ## 9. 技术栈
 
