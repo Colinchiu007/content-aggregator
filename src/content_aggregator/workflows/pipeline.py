@@ -32,6 +32,7 @@ from content_aggregator.sources.collectors.base_collector import BaseCollector, 
 from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
 from content_aggregator.processors.formatter import ContentFormatter
 from content_aggregator.processors.translator import TranslatorProcessor, TranslationConfig, TranslationLanguage
+from content_aggregator.processors.seo import SEOProcessor, SEOConfig
 from content_aggregator.exporters import Exporter
 
 
@@ -93,7 +94,7 @@ class ContentPipeline:
         if self.rewrite_processor:
             await self.rewrite_processor.__aexit__(exc_type, exc_val, exc_tb)
 
-    async def process_url(self, url: str, rewrite: bool = True, rewrite_config: RewriteConfig | None = None) -> Article | None:
+    async def process_url(self, url: str, rewrite: bool = True, rewrite_config: RewriteConfig | None = None, seo: bool = False) -> Article | None:
         """
         处理单个RSS URL
 
@@ -151,6 +152,20 @@ class ContentPipeline:
                     word_count=len(rewrite_result.rewritten_content),
                     metadata=rewrite_result.metadata
                 )
+
+                # SEO 优化
+                if seo:
+                    try:
+                        async with SEOProcessor(self.config) as seo_proc:
+                            seo_result = await seo_proc.optimize(content)
+                            if seo_result.success:
+                                article.tags = seo_result.optimized_tags
+                                article.metadata["seo_keywords"] = seo_result.keywords
+                                article.metadata["seo_description"] = seo_result.meta_description
+                                article.metadata["seo_title"] = seo_result.meta_title
+                    except Exception as e:
+                        logger.warning(f"SEO failed: {e}")
+
                 return article
             else:
                 logger.error(f"Rewrite failed: {rewrite_result.error}")
@@ -173,6 +188,7 @@ class ContentPipeline:
         rewrite: bool = True,
         translate: bool = False,
         target_language: str | None = None,
+        seo: bool = False,
         formats: list[str] | None = None,
         limit_per_source: int = 20,
     ) -> dict[str, Any]:
@@ -221,6 +237,12 @@ class ContentPipeline:
                 translate = False
             else:
                 translator = TranslatorProcessor(self.config)
+
+        # SEO processor (lazy init)
+        seo_processor = None
+        if seo:
+            seo_processor = SEOProcessor(self.config)
+            await seo_processor.__aenter__()
 
         # 各源配置映射
         source_configs_map = {
@@ -325,6 +347,25 @@ class ContentPipeline:
                             except Exception as e:
                                 logger.warning(f"翻译失败（{article.title}）: {e}")
 
+                        # SEO 优化
+                        if seo and seo_processor and article.word_count > 0:
+                            try:
+                                seo_content = Content(
+                                    id=article.id,
+                                    title=article.title,
+                                    content=article.content,
+                                    source_type=article.source,
+                                    url=article.source_url,
+                                )
+                                seo_result = await seo_processor.optimize(seo_content)
+                                if seo_result.success:
+                                    article.tags = seo_result.optimized_tags
+                                    article.metadata["seo_keywords"] = seo_result.keywords
+                                    article.metadata["seo_description"] = seo_result.meta_description
+                                    article.metadata["seo_title"] = seo_result.meta_title
+                            except Exception as e:
+                                logger.warning(f"SEO failed ({article.title}): {e}")
+
                         all_articles.append(article)
 
                         # 导出
@@ -354,6 +395,10 @@ class ContentPipeline:
 
         elapsed = time.time() - start
         success_sources = sum(1 for r in source_results if r["success"])
+
+        # Cleanup SEO processor
+        if seo_processor:
+            await seo_processor.__aexit__(None, None, None)
 
         print(f"\n{'=' * 60}")
         print(f"汇总")
