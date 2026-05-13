@@ -372,6 +372,7 @@ async def page_tasks(request: Request):
 async def api_collect_all(
     rewrite: bool = Form(default=True),
     translate: str | None = Form(default=None),
+    seo: bool = Form(default=False),
     formats: str | None = Form(default="markdown"),
 ):
     """触发全源采集（后台任务）"""
@@ -389,6 +390,7 @@ async def api_collect_all(
                     rewrite=rewrite,
                     translate=bool(translate),
                     target_language=translate,
+                    seo=seo,
                     formats=fmt_list,
                 )
 
@@ -417,6 +419,7 @@ async def api_collect_all(
 async def api_collect_url(
     url: str = Form(...),
     rewrite: bool = Form(default=True),
+    seo: bool = Form(default=False),
     formats: str | None = Form(default="markdown"),
 ):
     """采集单个 URL"""
@@ -430,7 +433,7 @@ async def api_collect_url(
 
             fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
             async with ContentPipeline(CONFIG) as pipeline:
-                article = await pipeline.process_url(url, rewrite=rewrite)
+                article = await pipeline.process_url(url, rewrite=rewrite, seo=seo)
 
                 if article:
                     article_store.add(article.to_dict())
@@ -500,6 +503,58 @@ async def api_rewrite(article_id: str = Form(...)):
 
         except Exception as e:
             task_manager.update(task_id, status="error", message=f"改写失败: {e}")
+
+    asyncio.create_task(run_task())
+    return JSONResponse({"task_id": task_id, "status": "started"})
+
+
+@app.post("/api/seo")
+async def api_seo(article_id: str = Form(...)):
+    """对已有文章执行 SEO 优化"""
+    article = article_store.get_by_id(article_id)
+    if not article:
+        return JSONResponse({"success": False, "error": "Article not found"})
+
+    task_id = task_manager.create("seo", f"SEO: {article.get('title', '')[:30]}")
+
+    async def run_task():
+        try:
+            task_manager.update(task_id, status="running", message="SEO optimizing...")
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "running", "message": "SEO optimizing..."})
+
+            from content_aggregator.processors.seo import SEOProcessor
+            async with SEOProcessor(CONFIG) as seo_proc:
+                content = Content(
+                    id=article.get("id", ""),
+                    source_id=article.get("source", ""),
+                    source_type="web",
+                    url=article.get("source_url", ""),
+                    title=article.get("title", ""),
+                    content=article.get("content", ""),
+                )
+                result = await seo_proc.optimize(content)
+
+                if result.success:
+                    article["tags"] = result.optimized_tags
+                    article["metadata"]["seo_keywords"] = result.keywords
+                    article["metadata"]["seo_description"] = result.meta_description
+                    article["metadata"]["seo_title"] = result.meta_title
+                    article_store.save()
+
+                    msg = f"SEO done: {len(result.keywords)} keywords, {len(result.optimized_tags)} tags"
+                    task_manager.update(task_id, status="done", progress=100, message=msg, result={
+                        "keywords": result.keywords,
+                        "description": result.meta_description,
+                        "tags": result.optimized_tags,
+                    })
+                    await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                        "status": "done", "message": msg})
+                else:
+                    task_manager.update(task_id, status="error", message=f"SEO failed: {result.error}")
+
+        except Exception as e:
+            task_manager.update(task_id, status="error", message=f"SEO failed: {e}")
 
     asyncio.create_task(run_task())
     return JSONResponse({"task_id": task_id, "status": "started"})

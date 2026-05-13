@@ -75,6 +75,7 @@ async def process_single(
     url: str,
     formats: list[str],
     rewrite: bool,
+    seo: bool,
     verbose: bool
 ) -> dict:
     """
@@ -85,6 +86,7 @@ async def process_single(
         url: RSS URL
         formats: 导出格式列表
         rewrite: 是否改写
+        seo: 是否 SEO 优化
         verbose: 是否显示详细信息
 
     返回：
@@ -97,8 +99,8 @@ async def process_single(
         print(f"Processing: {url}")
         print(f"{'=' * 60}")
 
-    # 采集 + 改写
-    article = await pipeline.process_url(url, rewrite=rewrite)
+    # 采集 + 改写 + SEO
+    article = await pipeline.process_url(url, rewrite=rewrite, seo=seo)
 
     if not article:
         return {
@@ -170,7 +172,7 @@ async def process_batch(
     results = []
     for i, url in enumerate(urls, 1):
         print(f"\n[{i}/{len(urls)}] Processing...")
-        result = await process_single(pipeline, url, formats, rewrite, verbose)
+        result = await process_single(pipeline, url, formats, rewrite, seo, verbose)
         results.append(result)
 
     return results
@@ -231,6 +233,7 @@ async def main():
 
     # 处理选项
     parser.add_argument("--no-rewrite", action="store_true", help="跳过 AI 改写")
+    parser.add_argument("--seo", action="store_true", help="对采集内容进行 SEO 优化（关键词/描述/标签）")
     parser.add_argument("--translate", type=str, nargs="?", const="EN",
                         help="翻译为指定语言（如 EN / JA / KO），不传参数默认英文")
     parser.add_argument("--limit", type=int, help="限制处理数量")
@@ -284,6 +287,7 @@ async def main():
         print("\n📦 全源采集模式")
         print(f"  格式: {', '.join(formats)}")
         print(f"  改写: {not args.no_rewrite}")
+        print(f"  SEO: {args.seo}")
         print(f"  翻译: {args.translate or '关闭'}")
         print(f"{'=' * 60}")
 
@@ -293,6 +297,7 @@ async def main():
                 rewrite=not args.no_rewrite,
                 translate=bool(args.translate),
                 target_language=args.translate,
+                seo=args.seo,
                 formats=formats,
                 limit_per_source=args.limit_per_source,
             )
@@ -334,7 +339,7 @@ async def main():
             urls=urls,
             formats=formats,
             rewrite=not args.no_rewrite,
-            limit=args.limit,
+            seo=args.seo,
             verbose=not args.quiet
         )
 
