@@ -131,12 +131,12 @@ Rules:
 
         try:
             # 构造 prompt
-            system = self.SYSTEM_PROMPT.format(
-                max_kw=seo_config.max_keywords,
-                max_desc=seo_config.description_length,
-                max_tags=seo_config.max_tags,
-                lang=seo_config.language,
-            )
+            # 避免 JSON 中的 {..} 被 .format() 误解析，逐个替换参数
+            system = self.SYSTEM_PROMPT \
+                .replace("{max_kw}", str(seo_config.max_keywords)) \
+                .replace("{max_desc}", str(seo_config.description_length)) \
+                .replace("{max_tags}", str(seo_config.max_tags)) \
+                .replace("{lang}", seo_config.language)
 
             # 截取正文（避免 token 浪费，保留前 3000 字足够 SEO 分析）
             body = content.content[:3000] if content.content else ""
