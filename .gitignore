@@ -16,3 +16,6 @@ output/
 
 # Environment
 .env
+
+# Config with secrets
+config/config.yaml
