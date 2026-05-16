@@ -221,6 +221,10 @@ async def main():
     input_group.add_argument("--file", type=str, help="包含多个 URL 的文件（每行一个）")
     input_group.add_argument("--all-sources", action="store_true", help="采集 config.yaml 中所有已启用的数据源")
 
+    # 调度器
+    parser.add_argument("--scheduler-start", action="store_true", help="启动定时调度器（前台运行，Ctrl+C 停止）")
+    parser.add_argument("--scheduler-status", action="store_true", help="显示调度器任务状态")
+
     # 导出格式
     parser.add_argument(
         "--format",
@@ -267,6 +271,25 @@ async def main():
         print("Error: LLM API key not configured")
         print("Please set api_key in config/config.yaml or use --no-rewrite")
         sys.exit(1)
+
+    # ---- Scheduler 模式 ----
+    if args.scheduler_status:
+        from content_aggregator.scheduler import ContentScheduler
+        scheduler = ContentScheduler()
+        scheduler.load_from_config(config)
+        status = scheduler.get_status()
+        print("定时任务状态:")
+        for task in status["tasks"]:
+            print(f"  - {task['name']}: {'启用' if task['enabled'] else '禁用'} (type={task['type']})")
+        return
+
+    if args.scheduler_start:
+        from content_aggregator.scheduler import ContentScheduler
+        scheduler = ContentScheduler()
+        scheduler.load_from_config(config)
+        print("启动定时任务调度器...")
+        await scheduler.start()
+        return
 
     # 确定导出格式
     formats = args.format if args.format else ["markdown"]

@@ -191,6 +191,54 @@ class ContentScheduler:
         self._tasks.append(task_config)
         logger.info(f"Added once task '{name}' scheduled for {run_at}")
 
+    def load_from_config(self, config: dict[str, Any]) -> None:
+        """
+        从 config.yaml 的 scheduler.jobs 加载定时任务，注册到调度器
+        """
+        scheduler_config = config.get("scheduler", {})
+        if not scheduler_config.get("enabled", False):
+            logger.info("Scheduler is disabled in config")
+            return
+        
+        jobs = scheduler_config.get("jobs", [])
+        
+        for job in jobs:
+            name = job.get("name", "unnamed")
+            job_type = job.get("type", "interval").upper()
+            
+            # 用默认参数捕获当前 job，避免闭包变量绑定问题
+            async def callback(cfg=config, jc=job):
+                logger.info(f"Running scheduled job: {jc.get('name', 'unknown')}")
+                try:
+                    from content_aggregator.workflows.pipeline import ContentPipeline
+                    async with ContentPipeline(cfg) as pipeline:
+                        result = await pipeline.process_all_sources(
+                            rewrite=jc.get("rewrite", True),
+                            translate=jc.get("translate", False),
+                            target_language=jc.get("target_language"),
+                            seo=jc.get("seo", False),
+                            formats=jc.get("formats", ["markdown"]),
+                            limit_per_source=jc.get("limit_per_source", 20),
+                        )
+                        summary = result.get("summary", {})
+                        logger.info(f"Job '{jc.get('name')}' completed: {summary}")
+                except Exception as e:
+                    logger.error(f"Job '{jc.get('name')}' failed: {e}")
+            
+            if job_type == "INTERVAL":
+                interval_seconds = job.get("interval_hours", 6) * 3600
+                self.add_interval_task(name, interval_seconds, callback, enabled=job.get("enabled", True))
+            elif job_type == "CRON":
+                cron_expr = job.get("cron", "0 9 * * *")
+                self.add_cron_task(name, cron_expr, callback, enabled=job.get("enabled", True))
+            elif job_type == "ONCE":
+                run_at_str = job.get("run_at")
+                if run_at_str:
+                    run_at = datetime.datetime.fromisoformat(run_at_str)
+                    self.add_once_task(name, run_at, callback, enabled=job.get("enabled", True))
+            else:
+                logger.error(f"Unknown job type: {job_type}")
+
     async def start(self) -> None:
         """启动调度器"""
         if self._running:
