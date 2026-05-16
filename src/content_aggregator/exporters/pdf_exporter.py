@@ -92,8 +92,12 @@ class PDFExporter:
             from reportlab.lib.styles import ParagraphStyle
             from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, PageBreak
             from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_JUSTIFY
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
             self._reportlab_available = True
             self._styles = None  # 延迟初始化
+            # 注册中文字体
+            self._chinese_font_name = self._register_chinese_font()
         except ImportError:
             logger.warning("reportlab 未安装，无法使用 PDF 导出功能")
             logger.info("请运行: pip install reportlab")
@@ -195,6 +199,34 @@ class PDFExporter:
         except Exception as e:
             logger.error(f"PDF export error: {e}")
             return PDFExportResult(success=False, error=str(e))
+
+    def _register_chinese_font(self) -> str:
+        """注册中文字体，返回注册的字体名"""
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        import os
+        
+        font_paths = [
+            ("C:\\Windows\\Fonts\\simhei.ttf", "SimHei"),
+            ("C:\\Windows\\Fonts\\simkai.ttf", "SimKai"),
+            ("C:\\Windows\\Fonts\\msyh.ttc,0", "SimHei"),
+            ("C:\\Windows\\Fonts\\STSONG.TTF", "STSong"),
+        ]
+        
+        registered = "Helvetica"  # 默认
+        for path, name in font_paths:
+            if os.path.exists(path):
+                try:
+                    pdfmetrics.registerFont(TTFont(name, path))
+                    registered = name
+                    logger.info(f"Registered Chinese font: {name} from {path}")
+                    break
+                except Exception as e:
+                    logger.warning(f"Failed to register {path}: {e}")
+        
+        if registered == "Helvetica":
+            logger.warning("No Chinese font found, falling back to Helvetica")
+        return registered
 
     def _get_page_size(self, size_name: str):
         """获取页面尺寸"""
@@ -349,8 +381,9 @@ class PDFExporter:
         fs = fontSize or config.font_size
         lh = leading or (fs * config.line_spacing)
 
-        # 字体
-        font = config.font_name
+        # 字体：检测是否含CJK字符，使用中文字体
+        base_font = getattr(self, '_chinese_font_name', None) or "Helvetica"
+        font = base_font
         if bold:
             font = font + "-Bold"
         if italic:
