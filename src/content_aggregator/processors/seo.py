@@ -234,13 +234,13 @@ Rules:
         except json.JSONDecodeError:
             pass
 
-        # 提取第一个 JSON 对象
-        m = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except json.JSONDecodeError:
-                pass
+        # 3. raw_decode
+        try:
+            decoder = json.JSONDecoder()
+            result, _ = decoder.raw_decode(text)
+            return result
+        except json.JSONDecodeError:
+            pass
 
         logger.warning(f"Failed to parse SEO response: {text[:200]}")
         return {}
