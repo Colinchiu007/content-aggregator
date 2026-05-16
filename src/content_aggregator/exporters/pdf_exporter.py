@@ -245,11 +245,11 @@ class PDFExporter:
 
         # 元信息（作者、日期、来源）
         meta_lines = []
-        if article.author:
+        if getattr(article, 'author', None):
             meta_lines.append(f"作者：{article.author}")
-        if article.published_date:
+        if getattr(article, 'published_date', None):
             meta_lines.append(f"日期：{article.published_date}")
-        if article.source:
+        if getattr(article, 'source', None):
             meta_lines.append(f"来源：{article.source}")
 
         if meta_lines:
