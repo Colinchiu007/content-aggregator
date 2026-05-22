@@ -92,7 +92,7 @@ class WeChatCollector(BaseCollector):
         else:
             raise ValueError("微信公众号采集器需要 biz 或 name 参数")
 
-        response = await client.get(url, params=params, headers=headers, proxy=self.proxy)
+        response = await client.get(url, params=params, headers=headers)
         response.raise_for_status()
 
         # 解析响应

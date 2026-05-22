@@ -88,6 +88,13 @@ def get_collector(source_type: str, config: dict | None = None, **kwargs):
             if k in source_cfg:
                 init_kwargs[k] = source_cfg[k]
 
+    # YouTube 字幕提取：传入 LLM 配置（用于无字幕时的 AI 识别）
+    if source_type == "youtube":
+        init_kwargs["fetch_transcript"] = source_cfg.get("fetch_transcript", True)
+        # 从 config.yaml 的顶层 llm 节读取
+        if "llm" in source_cfg:
+            init_kwargs["llm_config"] = source_cfg["llm"]
+
     # 传入 config 字典（采集器从中读取参数）
     init_kwargs["config"] = source_cfg
 

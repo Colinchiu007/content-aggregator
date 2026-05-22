@@ -66,7 +66,7 @@ class DouyinCollector(BaseCollector):
         }
 
         try:
-            response = await client.get(url, params=params, headers=headers, proxy=self.proxy)
+            response = await client.get(url, params=params, headers=headers)
             response.raise_for_status()
             data = response.json()
         except Exception as e:
@@ -80,7 +80,7 @@ class DouyinCollector(BaseCollector):
                 "enable_history": 1,
                 "pc_client_type": 1,
             }
-            response = await client.get(url2, params=params2, headers=headers, proxy=self.proxy)
+            response = await client.get(url2, params=params2, headers=headers)
             response.raise_for_status()
             data = response.json()
 

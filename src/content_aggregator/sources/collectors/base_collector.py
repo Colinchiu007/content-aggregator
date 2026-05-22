@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+import httpx
 from httpx import AsyncClient, HTTPStatusError, ProxyError, ConnectError, ReadTimeout
 
 logger = logging.getLogger(__name__)
@@ -63,11 +64,14 @@ class BaseCollector(ABC):
     async def _get_client(self) -> AsyncClient:
         """获取或创建 HTTP 客户端（懒加载）"""
         if self._client is None or self._client.is_closed:
-            self._client = AsyncClient(
+            kwargs = dict(
                 timeout=self.timeout,
                 follow_redirects=True,
                 limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
             )
+            if self.proxy:
+                kwargs['proxy'] = self.proxy
+            self._client = AsyncClient(**kwargs)
         return self._client
 
     async def _close_client(self):

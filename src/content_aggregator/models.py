@@ -3,6 +3,7 @@
 """
 
 from dataclasses import dataclass, field
+import uuid
 from datetime import datetime
 from typing import Any
 
@@ -88,16 +89,30 @@ class Article:
         }
 
     @classmethod
-    def from_content(cls, content: Content) -> "Article":
-        """从原始Content构建Article"""
+    def from_content(cls, content) -> "Article":
+        """从原始Content/RSS Article构建Article"""
         return cls(
-            id=content.id,
-            original_title=content.title,
-            source=content.source_id,
-            source_url=content.url,
-            author=content.author,
-            published_at=content.published_at,
-            content=content.content,
-            summary=content.summary,
-            metadata=content.metadata,
+            id=getattr(content, 'id', None) or str(uuid.uuid4()),
+            title=getattr(content, 'title', ''),
+            original_title=getattr(content, 'title', ''),
+            source=getattr(content, 'source_id', '') or getattr(content, 'source', ''),
+            source_url=getattr(content, 'url', ''),
+            author=getattr(content, 'author', '') or getattr(content, 'name', ''),
+            published_at=getattr(content, 'published_at', None),
+            content=getattr(content, 'content', ''),
+            summary=cls._truncate_str(getattr(content, 'summary', ''), 200),
+            metadata=getattr(content, 'metadata', {}) or {},
         )
+
+    @staticmethod
+    def _truncate_str(text: str, length: int) -> str:
+        """截断文本并加省略号"""
+        if not text:
+            return ""
+        # 先去掉 HTML 标签（摘要里可能带标签）
+        import re
+        text = re.sub(r'<[^>]+>', '', text)
+        text = text.strip()
+        if len(text) <= length:
+            return text
+        return text[:length] + "..."

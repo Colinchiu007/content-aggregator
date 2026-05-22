@@ -27,6 +27,24 @@
         {{ {'pending': '等待中', 'running': '运行中', 'done': '完成', 'error': '失败'}.get(task.status, task.status) }}
     </span>
 </div>
+{% if task.status == 'done' and task.result %}
+{% if task.result.article_ids %}
+<div style="margin-top:8px;margin-bottom:12px;padding-left:28px">
+    <span style="font-size:12px;color:var(--text-muted)">📄 采集到的文章：</span>
+    {% for article_id in task.result.article_ids[:5] %}
+    <a href="/articles/{{ article_id }}" class="btn btn-outline btn-sm" style="padding:2px 8px;font-size:11px;margin:2px 2px">查看</a>
+    {% endfor %}
+    {% if task.result.article_ids|length > 5 %}
+    <span style="font-size:11px;color:var(--text-muted)">+{{ task.result.article_ids|length - 5 }} 篇</span>
+    {% endif %}
+</div>
+{% elif task.result.article_id %}
+<div style="margin-top:8px;margin-bottom:12px;padding-left:28px">
+    <span style="font-size:12px;color:var(--text-muted)">✨ 改写完成：</span>
+    <a href="/articles/{{ task.result.article_id }}" class="btn btn-warning btn-sm" style="padding:2px 8px;font-size:11px">查看改写后文章 →</a>
+</div>
+{% endif %}
+{% endif %}
 {% endfor %}
 
 <div style="margin-top:20px">

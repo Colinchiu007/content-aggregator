@@ -23,7 +23,7 @@
 
 <!-- 文章表格 -->
 <div class="card">
-    {% if articles.items %}
+    {% if articles['items'] %}
     <div class="table-wrapper">
         <table>
             <thead>
@@ -36,12 +36,15 @@
                 </tr>
             </thead>
             <tbody>
-                {% for article in articles.items %}
+                {% for article in articles['items'] %}
                 <tr id="row-{{ article.id }}">
                     <td>
                         <a href="/articles/{{ article.id }}" style="color:var(--primary);text-decoration:none;font-weight:500">
                             {{ truncate(article.title, 50) or '无标题' }}
                         </a>
+                        {% if article.metadata and article.metadata.get('rewritten') %}
+                        <span class="badge" style="background:var(--warning);color:#fff;margin-left:6px;font-size:11px">✨ 已改写</span>
+                        {% endif %}
                     </td>
                     <td><span class="badge badge-muted">{{ article.source or '-' }}</span></td>
                     <td>{{ article.word_count or article.content|length }}</td>
@@ -57,20 +60,20 @@
     </div>
 
     <!-- 分页 -->
-    {% if articles.pages > 1 %}
+    {% if articles['pages'] > 1 %}
     <div class="pagination">
-        {% if articles.page > 1 %}
-        <a href="/articles?page={{ articles.page - 1 }}{% if current_source %}&source={{ current_source }}{% endif %}">‹ 上一页</a>
+        {% if articles['page'] > 1 %}
+        <a href="/articles?page={{ articles['page'] - 1 }}{% if current_source %}&source={{ current_source }}{% endif %}">‹ 上一页</a>
         {% endif %}
-        {% for p in range(1, articles.pages + 1) %}
-        {% if p == articles.page %}
+        {% for p in range(1, articles['pages'] + 1) %}
+        {% if p == articles['page'] %}
         <span class="active">{{ p }}</span>
         {% else %}
         <a href="/articles?page={{ p }}{% if current_source %}&source={{ current_source }}{% endif %}">{{ p }}</a>
         {% endif %}
         {% endfor %}
-        {% if articles.page < articles.pages %}
-        <a href="/articles?page={{ articles.page + 1 }}{% if current_source %}&source={{ current_source }}{% endif %}">下一页 ›</a>
+        {% if articles['page'] < articles['pages'] %}
+        <a href="/articles?page={{ articles['page'] + 1 }}{% if current_source %}&source={{ current_source }}{% endif %}">下一页 ›</a>
         {% endif %}
     </div>
     {% endif %}

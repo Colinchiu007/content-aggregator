@@ -163,6 +163,8 @@
         .btn-primary:hover { background: var(--primary-hover); }
         .btn-success { background: var(--success); }
         .btn-success:hover { background: #16a34a; }
+        .btn-youtube { background: #FF0000; color: #fff; }
+        .btn-youtube:hover { background: #CC0000; }
         .btn-danger { background: var(--danger); }
         .btn-danger:hover { background: #dc2626; }
         .btn-warning { background: var(--warning); color: #000; }
@@ -424,8 +426,10 @@
                 <a href="/" {% if active_page == 'dashboard' %}class="active"{% endif %}>📊 仪表盘</a>
                 <a href="/articles" {% if active_page == 'articles' %}class="active"{% endif %}>📝 文章列表</a>
                 <a href="/sources" {% if active_page == 'sources' %}class="active"{% endif %}>🔌 数据源</a>
+                <a href="/settings" {% if active_page == 'settings' %}class="active"{% endif %}>⚙️ 数据源配置</a>
                 <a href="/compose" {% if active_page == 'compose' %}class="active"{% endif %}>✏️ 手动输入</a>
                 <a href="/tasks" {% if active_page == 'tasks' %}class="active"{% endif %}>⏳ 任务列表</a>
+                <a href="/scheduler" {% if active_page == 'scheduler' %}class="active"{% endif %}>🕐 定时调度</a>
             </nav>
         </aside>
 
@@ -439,22 +443,6 @@
     <div class="toast-container" id="toast-container"></div>
 
     <script>
-        // WebSocket 实时更新
-        let ws = null;
-        function connectWS() {
-            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            ws = new WebSocket(`${protocol}//${location.host}/ws`);
-            ws.onopen = () => console.log('WS connected');
-            ws.onmessage = (e) => {
-                const msg = JSON.parse(e.data);
-                if (msg.type === 'task_update') {
-                    if (typeof onTaskUpdate === 'function') onTaskUpdate(msg);
-                }
-            };
-            ws.onclose = () => setTimeout(connectWS, 3000);
-            ws.onerror = () => ws.close();
-        }
-        connectWS();
 
         // Toast 通知
         function showToast(message, type = 'info') {

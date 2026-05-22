@@ -68,6 +68,7 @@ class RewriteConfig:
         min_word_count: 最小字数
         max_word_count: 最大字数
         target_word_count: 目标字数
+        translate_to: 翻译目标语言（如 "zh" 表示先翻译成中文再改写）
     """
     strategy: RewriteStrategy = RewriteStrategy.REWRITE
     style_id: str | None = None
@@ -75,6 +76,7 @@ class RewriteConfig:
     min_word_count: int = 500
     max_word_count: int = 5000
     target_word_count: int = 3000
+    translate_to: str | None = None
 
 
 @dataclass
@@ -439,6 +441,29 @@ class RewriteProcessor:
                         if sep in content_text:
                             content_text = content_text.split(sep, 1)[1]
                             break
+
+        # 清理 LLM 生成的引导语
+        intro_patterns = [
+            r'^好的[，,]?请(?:先)?看以下为您[^。\n]+[。]?\s*',
+            r'^以下是为您[^。\n]+[。]?\s*',
+            r'^好的[，,]以下(?:内容|文章)[^。\n]*[。]?\s*',
+            r'^好的[，,]?已为您[^。\n]+[。]?\s*',
+            r'^好的[，,]?请(?:您)?欣赏[^。\n]*[。]?\s*',
+        ]
+        for pattern in intro_patterns:
+            content_text = re.sub(pattern, "", content_text, count=1, flags=re.IGNORECASE)
+
+        # 清理正文开头的摘要/标题标记行（非 SUMMARIZE 策略时）
+        if config.strategy.value != 'SUMMARIZE':
+            summary_prefixes = [
+                r'\*\*摘要\*\*[：:]?\s*\n?',
+                r'##\s*摘要[：:]?\s*\n?',
+                r'【摘要】[：:]?\s*\n?',
+                r'摘要[：:]\s*\n?',
+                r'\*\*Abstract\*\*[：:]?\s*\n?',
+            ]
+            for sp in summary_prefixes:
+                content_text = re.sub(sp, '', content_text, count=1)
 
         content_text = content_text.strip()
 

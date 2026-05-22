@@ -82,10 +82,10 @@ class APICollector(BaseCollector):
         logger.info(f"[API] 请求: {url}")
         if self.method == "POST":
             response = await client.post(url, params=self.params, json=self.body,
-                                         headers=req_headers, proxy=self.proxy)
+                                         headers=req_headers)
         else:
             response = await client.get(url, params=self.params,
-                                         headers=req_headers, proxy=self.proxy)
+                                         headers=req_headers)
         response.raise_for_status()
 
         # 解析响应

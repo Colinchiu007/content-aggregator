@@ -77,7 +77,7 @@ class XiaohongshuCollector(BaseCollector):
         else:
             raise ValueError("小红书采集器需要 user_id 或 keyword 参数")
 
-        response = await client.get(url, params=params, headers=headers, proxy=self.proxy)
+        response = await client.get(url, params=params, headers=headers)
         response.raise_for_status()
         data = response.json()
 

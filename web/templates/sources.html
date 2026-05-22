@@ -8,79 +8,146 @@
     <a href="/" class="btn btn-primary">🚀 去采集</a>
 </div>
 
+<!-- RSS 源在线管理 -->
 <div class="card" style="margin-bottom:20px">
-    <p style="color:var(--text-muted);font-size:14px">
-        数据源在 <code style="background:var(--bg);padding:2px 6px;border-radius:4px">config/config.yaml</code> 中配置。
-        修改配置后重启 Web 服务生效。未配置 API Key / Cookie 的数据源会自动跳过。
-    </p>
+    <div class="card-header">
+        <span class="card-title">📡 RSS 订阅源</span>
+        <button class="btn btn-primary btn-sm" onclick="showAddForm()">+ 添加 RSS 源</button>
+    </div>
+
+    <!-- 添加表单 -->
+    <div id="add-form" style="display:none;margin-bottom:16px;padding:16px;background:var(--bg);border-radius:8px">
+        <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap">
+            <div style="flex:1;min-width:150px">
+                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">名称</label>
+                <input type="text" id="src-name" placeholder="例：阮一峰网络日志" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:14px">
+            </div>
+            <div style="flex:2;min-width:250px">
+                <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">RSS URL</label>
+                <input type="url" id="src-url" placeholder="例：http://feeds.feedburner.com/ruanyifeng" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:14px">
+            </div>
+            <button class="btn btn-primary" onclick="addSource()">添加</button>
+            <button class="btn btn-outline" onclick="hideAddForm()">取消</button>
+        </div>
+        <div id="add-error" style="color:var(--error);font-size:13px;margin-top:8px;display:none"></div>
+    </div>
+
+    <!-- RSS 源列表 -->
+    <div id="rss-list">
+        {% set rss_sources = sources_config.get('rss', []) %}
+        {% if rss_sources is iterable and rss_sources is not string %}
+        {% for src in rss_sources %}
+        <div class="rss-item" style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)" data-name="{{ src.name }}">
+            <span style="font-size:20px">📡</span>
+            <div style="flex:1">
+                <div style="font-weight:600">{{ src.name }}</div>
+                <div style="font-size:12px;color:var(--text-muted)">{{ src.url }}</div>
+            </div>
+            <span class="badge badge-{{ 'success' if src.enabled else 'muted' }}" id="badge-{{ src.name }}">{{ '已启用' if src.enabled else '已禁用' }}</span>
+            <button class="btn btn-outline btn-sm" onclick="toggleSource('{{ src.name }}')">{{ '禁用' if src.enabled else '启用' }}</button>
+            <button class="btn btn-outline btn-sm" style="color:var(--error)" onclick="deleteSource('{{ src.name }}')">删除</button>
+        </div>
+        {% endfor %}
+        {% if rss_sources | length == 0 %}
+        <p style="color:var(--text-muted);padding:20px 0;text-align:center">暂无 RSS 源，点击上方按钮添加</p>
+        {% endif %}
+        {% else %}
+        <p style="color:var(--text-muted);padding:20px 0;text-align:center">暂无 RSS 源配置</p>
+        {% endif %}
+    </div>
 </div>
 
+<!-- 其他数据源状态 -->
 {% set source_info = {
-    'rss': {'icon': '📡', 'label': 'RSS 订阅', 'desc': '标准 RSS/Atom 订阅源，博客/新闻通用'},
     'youtube': {'icon': '🎬', 'label': 'YouTube', 'desc': 'YouTube Data API v3，需要 API Key'},
     'twitter': {'icon': '🐦', 'label': 'X (Twitter)', 'desc': 'Twitter API v2，需要 Bearer Token'},
     'tiktok': {'icon': '🎵', 'label': 'TikTok', 'desc': 'TikTok Cookie API，需要登录 Cookie'},
-    'douyin': {'icon': '📱', 'label': '抖音', 'desc': '抖音开放平台或 Cookie，需要 Cookie/Client Key'},
-    'xiaohongshu': {'icon': '📕', 'label': '小红书', 'desc': '小红书笔记采集，需要登录 Cookie'},
+    'douyin': {'icon': '📱', 'label': '抖音', 'desc': '抖音开放平台或 Cookie'},
+    'xiaohongshu': {'icon': '📕', 'label': '小红书', 'desc': '小红书笔记采集，需要 Cookie'},
     'wechat': {'icon': '💬', 'label': '微信公众号', 'desc': '搜狗微信搜索或新榜 API'},
-    'sitemap': {'icon': '🗺️', 'label': 'Sitemap', 'desc': '网站 sitemap.xml 自动发现'},
-    'api': {'icon': '🔌', 'label': '自定义 API', 'desc': '通用 REST/GraphQL API，JSONPath 提取'},
+    'sitemap': {'icon': '🗺️', 'label': 'Sitemap', 'desc': '网站 sitemap.xml'},
+    'api': {'icon': '🔌', 'label': '自定义 API', 'desc': '通用 REST API'},
 } %}
 
-<div class="source-grid">
-    {% for src_type, src_cfg in sources_config.items() %}
-    {% set info = source_info.get(src_type, {'icon': '📦', 'label': src_type, 'desc': ''}) %}
-    <div class="source-card">
-        <h3>{{ info.icon }} {{ info.label }}</h3>
-        <p>{{ info.desc }}</p>
-        <div style="margin-top:10px">
-            {% if src_type == 'rss' %}
-                {% if src_cfg is mapping %}
-                    {% set enabled_count = src_cfg|selectattr('enabled', 'equalto', true)|list|length %}
-                    {% set total_count = src_cfg|length %}
-                {% elif src_cfg is string %}
-                    {% set enabled_count = 1 %}
-                    {% set total_count = 1 %}
-                {% else %}
-                    {% set enabled_count = 0 %}
-                    {% set total_count = 0 %}
-                {% endif %}
-                <span class="badge badge-{{ 'success' if enabled_count > 0 else 'muted' }}">
-                    {{ enabled_count }} 个源已启用
-                </span>
-            {% else %}
-                {% set has_key = false %}
-                {% for key in ['api_key', 'bearer_token', 'session_id', 'cookie', 'client_key', 'xhs_token'] %}
-                    {% if src_cfg.get(key) and src_cfg.get(key) != 'null' %}
-                        {% set has_key = true %}
-                    {% endif %}
-                {% endfor %}
-                {% if has_key %}
-                <span class="badge badge-success">已配置凭证</span>
-                {% else %}
-                <span class="badge badge-warning">未配置凭证</span>
-                {% endif %}
-            {% endif %}
+{% for src_type, info in source_info.items() %}
+{% if src_type in sources_config %}
+<div class="card" style="margin-bottom:12px;padding:16px">
+    <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:24px">{{ info.icon }}</span>
+        <div style="flex:1">
+            <h3 style="margin:0">{{ info.label }}</h3>
+            <p style="margin:4px 0 0;color:var(--text-muted);font-size:13px">{{ info.desc }}</p>
         </div>
+        <span class="badge badge-warning">需在 config.yaml 配置凭证</span>
     </div>
-    {% endfor %}
 </div>
+{% endif %}
+{% endfor %}
 
-<!-- 配置预览 -->
-<div class="card" style="margin-top:24px">
-    <div class="card-header">
-        <span class="card-title">📄 config.yaml 源配置预览</span>
-    </div>
-    <pre style="background:var(--bg);padding:16px;border-radius:6px;font-size:13px;overflow-x:auto;max-height:400px;overflow-y:auto">
-sources:
-    rss:
-      - name: "阮一峰网络日志"
-        url: "http://feeds.feedburner.com/ruanyifeng"
-        enabled: true
-    youtube:
-      api_key: "***"  # 填入 YouTube Data API v3 Key
-      channels: []
-    # ... 更多配置见 config/config.yaml
-    </pre>
+<div class="card" style="margin-top:16px;padding:12px 20px">
+    <p style="color:var(--text-muted);font-size:13px;margin:0">
+        💡 RSS 源可在线管理，其他数据源可在 <a href="/settings" style="color:var(--primary)">⚙️ 数据源配置</a> 页面填写凭证。
+    </p>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showAddForm() {
+    document.getElementById('add-form').style.display = 'block';
+    document.getElementById('src-name').focus();
+}
+function hideAddForm() {
+    document.getElementById('add-form').style.display = 'none';
+    document.getElementById('add-error').style.display = 'none';
+}
+
+async function addSource() {
+    const name = document.getElementById('src-name').value.trim();
+    const url = document.getElementById('src-url').value.trim();
+    if (!name || !url) {
+        const errEl = document.getElementById('add-error');
+        errEl.textContent = '请填写名称和 URL';
+        errEl.style.display = 'block';
+        return;
+    }
+    const fd = new FormData();
+    fd.append('name', name);
+    fd.append('url', url);
+    fd.append('enabled', 'on');
+    const resp = await fetch('/api/sources/rss', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (data.success) {
+        showToast('添加成功，刷新页面', 'success');
+        setTimeout(() => location.reload(), 800);
+    } else {
+        const errEl = document.getElementById('add-error');
+        errEl.textContent = data.error || '添加失败';
+        errEl.style.display = 'block';
+    }
+}
+
+async function toggleSource(name) {
+    const resp = await fetch(`/api/sources/rss/${encodeURIComponent(name)}/toggle`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.success) {
+        showToast(data.enabled ? '已启用' : '已禁用', 'success');
+        setTimeout(() => location.reload(), 500);
+    } else {
+        showToast(data.error || '操作失败', 'error');
+    }
+}
+
+async function deleteSource(name) {
+    if (!confirm(`确定删除「${name}」？`)) return;
+    const resp = await fetch(`/api/sources/rss/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const data = await resp.json();
+    if (data.success) {
+        showToast('已删除', 'success');
+        setTimeout(() => location.reload(), 500);
+    } else {
+        showToast(data.error || '删除失败', 'error');
+    }
+}
+</script>
 {% endblock %}

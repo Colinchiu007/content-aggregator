@@ -40,7 +40,7 @@ def main():
         host=args.host,
         port=args.port,
         reload=args.reload,
-        reload_dir=str(Path(__file__).parent.parent / "web"),
+        reload_dirs=[str(Path(__file__).parent.parent / "web")],
         app_dir=str(Path(__file__).parent.parent),
     )
 

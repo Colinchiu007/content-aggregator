@@ -49,6 +49,8 @@ class RewriteConfig:
     target_word_count: int = 3000
     # 自定义提示词（最高优先级，覆盖策略默认提示词和配置文件提示词）
     custom_prompt: str | None = None
+    # 翻译目标语言。设为 "zh" 时先翻译成中文再改写
+    translate_to: str | None = None
 
 
 @dataclass
@@ -81,6 +83,7 @@ class RewriteProcessor:
 
     DEFAULT_PROMPTS = {
         RewriteStrategy.SUMMARIZE: """你是一个专业的文章摘要助手。请根据提供的文章内容,提取核心要点,生成简洁准确的摘要。
+直接输出结果，不要任何寒暄或前缀。
 要求：
 1. 保留关键信息和核心观点
 2. 语言简洁流畅
@@ -88,6 +91,7 @@ class RewriteProcessor:
 4. 使用中文输出""",
 
         RewriteStrategy.STYLE_TRANSFER: """你是一个专业的文案风格转换助手。请将文章内容转换为指定的风格。
+直接输出结果，不要任何寒暄或前缀。
 要求：
 1. 保持原文的核心信息和观点
 2. 严格按照指定的风格要求进行转换
@@ -95,6 +99,8 @@ class RewriteProcessor:
 4. 使用中文输出""",
 
         RewriteStrategy.PARAPHRASE: """你是一个专业的伪原创助手。请在不改变原文核心意思的前提下,对文章进行改写,使其具有原创性。
+同时改写标题，在正文前用【标题】标记改写后的标题。
+直接输出结果，不要任何寒暄或前缀。
 要求：
 1. 保持原文的核心信息和观点不变
 2. 改变表达方式和句式结构
@@ -106,14 +112,18 @@ class RewriteProcessor:
 1. 保持原文的核心信息和主要观点
 2. 重新组织文章结构和段落
 3. 改变表达方式和句式
-4. 使用中文输出""",
+4. 使用中文输出
+5. 同时改写标题，在正文前用【标题】标记改写后的标题
+6. 直接输出改写结果，不要任何寒暄、解释或前缀（如"好的，这是为您改写后的文章"等）""",
 
         RewriteStrategy.EXPAND: """你是一个专业的内容扩展助手。请在原文基础上添加更多背景、案例、数据等信息,生成更丰富的内容。
 要求：
 1. 保持原文的核心主题和观点
 2. 添加相关的背景信息和行业数据
 3. 引入更多实际案例
-4. 使用中文输出""",
+4. 使用中文输出
+5. 同时改写标题，在正文前用【标题】标记改写后的标题
+6. 直接输出结果，不要任何寒暄、解释或前缀""",
 
         RewriteStrategy.SHORT_VIDEO: """根据下面要求改写：
 你是一名专业的短视频文案仿写专家，具备以下核心能力：
@@ -286,6 +296,15 @@ class RewriteProcessor:
         # 2. 从配置或默认值获取提示词
         system_prompt = self._get_prompt(config.strategy)
 
+        # 翻译要求（先翻译成中文再改写）
+        if config.translate_to == "zh":
+            system_prompt = (
+                "【重要】原文是英文，请按以下步骤处理：\n"
+                "第一步：先将全文翻译成流畅的中文（保留原文的技术术语）。\n"
+                "第二步：对翻译后的中文内容按以下要求进行改写。\n"
+                "---\n"
+            ) + system_prompt
+
         # 添加风格配置
         if config.style_config:
             style_rules = []
@@ -420,6 +439,21 @@ class RewriteProcessor:
 
         content_text = content_text.strip()
 
+        # 清理LLM常见的寒暄前缀
+        import re as _re
+        _prefix_patterns = [
+            r'^好的[，,].{0,20}?[：:]\s*',
+            r'^好的[，,].{0,20}?[。.]\s*',
+            r'^以下是.{0,20}?[：:]\s*',
+            r'^这是.{0,20}?[：:]\s*',
+            r'^好的[，。].*?文章[。]\s*',
+        ]
+        for pat in _prefix_patterns:
+            m = _re.match(pat, content_text)
+            if m:
+                content_text = content_text[m.end():].strip()
+                break
+
         # 提取关键词
         keywords = []
         if "【关键词】" in response or "关键词:" in response:
@@ -433,6 +467,8 @@ class RewriteProcessor:
             "original_length": len(original_content.content),
             "rewritten_length": len(content_text),
             "word_count": len(content_text),
+            "rewritten": True,
+            "translate_to": config.translate_to,
         }
 
         if usage:
@@ -445,7 +481,7 @@ class RewriteProcessor:
             original_content=original_content,
             rewritten_content=content_text,
             title=title,
-            summary=summary or self._truncate(content_text, 200),
+            summary=self._truncate(summary or content_text, 200),
             keywords=keywords,
             metadata=metadata
         )

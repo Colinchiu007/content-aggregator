@@ -94,7 +94,7 @@ class ContentPipeline:
         if self.rewrite_processor:
             await self.rewrite_processor.__aexit__(exc_type, exc_val, exc_tb)
 
-    async def process_url(self, url: str, rewrite: bool = True, rewrite_config: RewriteConfig | None = None, seo: bool = False) -> Article | None:
+    async def process_url(self, url: str, rewrite: bool = True, strategy: RewriteStrategy | str | None = None, rewrite_config: RewriteConfig | None = None, seo: bool = False, limit: int | None = None) -> list[Article]:
         """
         处理单个RSS URL
 
@@ -104,7 +104,7 @@ class ContentPipeline:
             rewrite_config: 改写配置
 
         返回：
-            Article 对象或 None
+            Article 对象列表（最多 limit 篇）
         """
         logger.info(f"Processing URL: {url}")
 
@@ -121,67 +121,71 @@ class ContentPipeline:
         result = await source.collect_async()
         if not result.get("success") or not result.get("data"):
             logger.error(f"No content collected from {url}")
-            return None
+            return []
 
-        # 取第一篇
-        content = result["data"][0]
-        logger.info(f"Collected: {content.title}")
+        articles = []
+        items = result["data"][:limit] if limit else result["data"]
+        for content in items:
+            logger.info(f"Collected: {content.title}")
 
-        # 改写
-        if rewrite and self.rewrite_processor:
-            rewrite_config = rewrite_config or RewriteConfig(
-                strategy=RewriteStrategy.REWRITE,
-                min_word_count=500,
-                max_word_count=5000,
-                target_word_count=3000
-            )
-            rewrite_result = await self.rewrite_processor.rewrite(content, rewrite_config)
-
-            if rewrite_result.success:
-                # 构建 Article
-                article = Article(
-                    id=rewrite_result.original_content.id if rewrite_result.original_content else str(uuid.uuid4()),
-                    title=rewrite_result.title or content.title,
-                    original_title=content.title,
-                    source=content.source_id,
-                    source_url=content.url,
-                    author=rewrite_result.original_content.author if rewrite_result.original_content else "",
-                    published_at=content.published_at,
-                    content=rewrite_result.rewritten_content,
-                    summary=rewrite_result.summary,
-                    word_count=len(rewrite_result.rewritten_content),
-                    metadata=rewrite_result.metadata
+            # 改写
+            if rewrite and self.rewrite_processor:
+                _strat = strategy if isinstance(strategy, RewriteStrategy) else RewriteStrategy(strategy or "rewrite")
+                _rewrite_config = rewrite_config or RewriteConfig(
+                    strategy=_strat,
+                    min_word_count=500,
+                    max_word_count=5000,
+                    target_word_count=3000
                 )
+                rewrite_result = await self.rewrite_processor.rewrite(content, _rewrite_config)
 
-                # SEO 优化
-                if seo:
-                    try:
-                        async with SEOProcessor(self.config) as seo_proc:
-                            seo_result = await seo_proc.optimize(content)
-                            if seo_result.success:
-                                article.tags = seo_result.optimized_tags
-                                article.metadata["seo_keywords"] = seo_result.keywords
-                                article.metadata["seo_description"] = seo_result.meta_description
-                                article.metadata["seo_title"] = seo_result.meta_title
-                    except Exception as e:
-                        logger.warning(f"SEO failed: {e}")
+                if rewrite_result.success:
+                    metadata = rewrite_result.metadata.copy() if rewrite_result.metadata else {}
+                    metadata['original_content'] = content.content
+                    metadata['original_title'] = content.title
+                    metadata['original_author'] = getattr(content, 'author', '') or ''
+                    article = Article(
+                        id=getattr(rewrite_result.original_content, 'id', None) if rewrite_result.original_content else str(uuid.uuid4()),
+                        title=rewrite_result.title or content.title,
+                        original_title=content.title,
+                        source=getattr(content, 'source_id', '') or content.source or '',
+                        source_url=content.url if hasattr(content, 'url') else '',
+                        author=rewrite_result.original_content.author if rewrite_result.original_content else "",
+                        published_at=content.published_at,
+                        content=rewrite_result.rewritten_content,
+                        summary=rewrite_result.summary,
+                        word_count=len(rewrite_result.rewritten_content),
+                        metadata=metadata
+                    )
 
-                return article
+                    if seo:
+                        try:
+                            async with SEOProcessor(self.config) as seo_proc:
+                                seo_result = await seo_proc.optimize(content)
+                                if seo_result.success:
+                                    article.tags = seo_result.optimized_tags
+                                    article.metadata["seo_keywords"] = seo_result.keywords
+                                    article.metadata["seo_description"] = seo_result.meta_description
+                                    article.metadata["seo_title"] = seo_result.meta_title
+                        except Exception as e:
+                            logger.warning(f"SEO failed: {e}")
+
+                    articles.append(article)
+                else:
+                    logger.error(f"Rewrite failed: {rewrite_result.error}")
+                    articles.append(Article.from_content(content))
             else:
-                logger.error(f"Rewrite failed: {rewrite_result.error}")
-                # 改写失败，返回原始内容
-                return Article.from_content(content)
+                articles.append(Article(
+                    id=content.id if hasattr(content, 'id') and content.id else str(uuid.uuid4()),
+                    title=content.title,
+                    content=content.content,
+                    source=content.source_id if hasattr(content, 'source_id') else getattr(content, 'name', '') or '',
+                    source_url=content.url if hasattr(content, 'url') else '',
+                    published_at=getattr(content, 'published_at', None),
+                    author=getattr(content, 'author', None) or getattr(content, 'name', None) or '',
+                ))
 
-        # 不改写，直接构建 Article
-        return Article(
-            id=content.id if hasattr(content, 'id') and content.id else str(uuid.uuid4()),
-            title=content.title,
-            content=content.content,
-            source=content.source_id if hasattr(content, 'source_id') else getattr(content, 'name', '') or '',
-            source_url=content.url if hasattr(content, 'url') else '',
-            published_at=getattr(content, 'published_at', None),
-            author=getattr(content, 'author', None) or getattr(content, 'name', None) or '',
-        )
+        return articles
 
     async def process_all_sources(
         self,
@@ -190,7 +194,7 @@ class ContentPipeline:
         target_language: str | None = None,
         seo: bool = False,
         formats: list[str] | None = None,
-        limit_per_source: int = 20,
+        limit_per_source: int | None = None,
     ) -> dict[str, Any]:
         """
         批量采集 config.yaml 中所有已启用的数据源
@@ -266,6 +270,11 @@ class ContentPipeline:
                 entry_name = entry.get("name", source_type)
                 logger.info(f"[Pipeline] 采集源: {entry_name} ({source_type})")
 
+                # Fix: filter invalid params, map max_items->max_results
+                collect_kwargs = {k: v for k, v in entry.items() if k != 'name'}
+                if 'max_items' in collect_kwargs:
+                    collect_kwargs['max_results'] = collect_kwargs.pop('max_items')
+
                 try:
                     collector = get_collector(
                         source_type,
@@ -273,7 +282,11 @@ class ContentPipeline:
                         proxy=self.proxy,
                         timeout=self.http_config.get("timeout", 30),
                     )
-                    result: SourceResult = await collector.collect(**entry)
+                    result: SourceResult = await collector.collect(**collect_kwargs)
+                    logger.info(f'[process_source] {entry_name}: success={result.success}, collected={result.collected_count}, data_len={len(result.data) if result.data else 0}')
+                except Exception as e:
+                    logger.error(f'[process_source] {entry_name}: EXCEPTION {e}')
+                    result = SourceResult(success=False, data=[], error=str(e))
 
                     source_results.append({
                         "source_name": entry_name,
@@ -292,7 +305,11 @@ class ContentPipeline:
                         continue
 
                     # 转换为 Article
+                    source_article_count = 0
                     for item_data in result.data:
+                        if limit_per_source and source_article_count >= limit_per_source:
+                            break
+                        source_article_count += 1
                         article = Article(
                             id=str(uuid.uuid4()),
                             title=item_data.get("title", ""),
@@ -422,6 +439,136 @@ class ContentPipeline:
             }
         }
 
+    async def process_source(
+        self,
+        source_type: str,
+        rewrite: bool = True,
+        translate: bool = False,
+        target_language: str | None = None,
+        formats: list[str] | None = None,
+        limit_per_source: int | None = None,
+    ) -> dict[str, Any]:
+        """
+        采集单个数据源（用于 YouTube 等独立采集按钮）
+
+        参数：
+            source_type: 源类型（如 youtube, twitter 等）
+            rewrite: 是否改写
+            translate: 是否翻译
+            target_language: 目标语言
+            formats: 导出格式列表
+            limit_per_source: 最大采集数
+
+        返回：
+            {
+                "articles": [...],
+                "summary": {
+                    "total_sources": 1,
+                    "success": 1,
+                    "total_articles": 5,
+                }
+            }
+        """
+        import time
+        all_articles: list[Article] = []
+        source_results: list[dict] = []
+        start = time.time()
+
+        # 翻译器
+        translator = None
+        translation_lang = None
+        if translate and self.translation_config.get("enabled", False):
+            lang_code = target_language or self.translation_config.get("default_language", "EN")
+            try:
+                translation_lang = TranslationLanguage(lang_code)
+            except ValueError:
+                translate = False
+            else:
+                translator = TranslatorProcessor(self.config)
+
+        # 获取解析器
+        source_configs_map = {
+            "rss": self._parse_rss_sources,
+            "youtube": self._parse_single_config,
+            "twitter": self._parse_single_config,
+            "tiktok": self._parse_single_config,
+            "douyin": self._parse_single_config,
+            "xiaohongshu": self._parse_single_config,
+            "wechat": self._parse_single_config,
+            "sitemap": self._parse_single_config,
+            "api": self._parse_single_config,
+        }
+
+        parse_fn = source_configs_map.get(source_type)
+        if not parse_fn:
+            return {"articles": [], "summary": {"total_sources": 0, "success": 0, "total_articles": 0}}
+
+        entries = parse_fn(source_type)
+        if not entries:
+            return {"articles": [], "summary": {"total_sources": 0, "success": 0, "total_articles": 0, "message": f"未配置 {source_type} 源"}}
+
+        for entry in entries:
+            entry_name = entry.get("name", source_type)
+            try:
+                collector = get_collector(
+                    source_type,
+                    config=entry,
+                    proxy=self.proxy,
+                    timeout=self.http_config.get("timeout", 30),
+                )
+                
+                # Fix: filter invalid params, map max_items->max_results
+                collect_kwargs = {k: v for k, v in entry.items() if k != 'name'}
+                if 'max_items' in collect_kwargs:
+                    collect_kwargs['max_results'] = collect_kwargs.pop('max_items')
+                result: SourceResult = await collector.collect(**collect_kwargs)
+                logger.info(f'[process_source] {entry_name}: success={result.success}, collected={result.collected_count}, data_len={len(result.data) if result.data else 0}')
+
+                source_results.append({
+                    "source_name": entry_name,
+                    "success": result.success,
+                    "collected": result.collected_count,
+                    "error": result.error,
+                })
+
+                if result.success and result.data:
+                    # result.data 是 dict 列表，需要转为 Content 对象
+                    from content_aggregator.models import Content
+                    contents = []
+                    for d in (result.data[:limit_per_source] if limit_per_source else result.data):
+                        contents.append(Content(
+                            id=d.get("id", str(uuid.uuid4())),
+                            source_id=d.get("source", "youtube"),
+                            source_type=d.get("source", "youtube"),
+                            url=d.get("url", ""),
+                            title=d.get("title", ""),
+                            content=d.get("content", ""),
+                            author=d.get("author", ""),
+                            published_at=d.get("published_at"),
+                            summary=d.get("summary", ""),
+                            metadata=d.get("metadata", {}),
+                        ))
+                    articles = await self.process_contents(contents, rewrite=rewrite)
+                    logger.info(f'[process_source] {entry_name}: {len(contents)} contents -> {len(articles)} articles')
+                    all_articles.extend(articles)
+
+            except Exception as e:
+                logger.error(f"采集失败 [{entry_name}]: {e}")
+                source_results.append({"source_name": entry_name, "success": False, "error": str(e)})
+
+        elapsed = time.time() - start
+        success_sources = sum(1 for r in source_results if r.get("success"))
+        return {
+            "articles": all_articles,
+            "source_results": source_results,
+            "summary": {
+                "total_sources": len(source_results),
+                "success": success_sources,
+                "total_articles": len(all_articles),
+                "elapsed": elapsed,
+            }
+        }
+
     def _parse_rss_sources(self, source_type: str) -> list[dict]:
         """解析 RSS 源配置"""
         sources = self.sources_config.get("rss", [])
@@ -435,21 +582,50 @@ class ContentPipeline:
     def _parse_single_config(self, source_type: str) -> list[dict]:
         """解析单配置数据源（youtube/twitter/douyin 等）"""
         source_cfg = self.sources_config.get(source_type, {})
+        entries = []
 
-        # 优先从 channels/users/accounts/sites/endpoints 读取
+        # YouTube 搜索关键词
+        if source_type == "youtube":
+            search_queries = source_cfg.get("search_queries", [])
+            if search_queries:
+                search_order = source_cfg.get("search_order", "relevance")
+                search_limit = source_cfg.get("search_limit", 10)
+                for query in search_queries:
+                    if isinstance(query, str) and query.strip():
+                        entry = dict(source_cfg)
+                        entry["search_query"] = query.strip()
+                        entry["order"] = search_order
+                        entry["max_results"] = search_limit
+                        entry["name"] = f"YouTube搜索: {query.strip()}"
+                        entry["max_items"] = search_limit
+                        entries.append(entry)
+
+        # 频道/用户/账号列表
         for list_key in ["channels", "users", "accounts", "sites", "endpoints"]:
             items = source_cfg.get(list_key, [])
             if items:
-                entries = []
                 for item in items:
-                    if not item.get("enabled", True):
+                    if isinstance(item, str):
+                        entry = dict(source_cfg)
+                        # 频道 ID 字符串 → channel_id 参数
+                        if list_key == "channels":
+                            entry["channel_id"] = item
+                        else:
+                            entry["base_url"] = item
+                        entry["name"] = item
+                        entry["max_items"] = 20
+                        entries.append(entry)
                         continue
+
                     entry = dict(source_cfg)  # 复制全局配置（api_key/cookie 等）
                     entry.update(item)  # 用单项配置覆盖
                     entry["name"] = item.get("name", source_type)
                     entry["max_items"] = item.get("max_items", 20)
                     entries.append(entry)
-                return entries
+
+        # 如果有 entries 直接返回
+        if entries:
+            return entries
 
         # 如果有 api_url 或 base_url 等直接字段，视为单个源
         if source_cfg.get("api_url") or source_cfg.get("base_url"):
@@ -474,21 +650,27 @@ class ContentPipeline:
             # 改写
             if rewrite and self.rewrite_processor:
                 rewrite_result = await self.rewrite_processor.rewrite(content)
-                if rewrite_result.success:
-                    article = Article(
-                        id=rewrite_result.original_content.id if rewrite_result.original_content else str(uuid.uuid4()),
-                        title=rewrite_result.title or content.title,
-                        original_title=content.title,
-                        source=content.source_id,
-                        source_url=content.url,
-                        author=rewrite_result.original_content.author if rewrite_result.original_content else "",
-                        published_at=content.published_at,
-                        content=rewrite_result.rewritten_content,
-                        summary=rewrite_result.summary,
-                        word_count=len(rewrite_result.rewritten_content),
-                        metadata=rewrite_result.metadata
-                    )
-                    articles.append(article)
+                rewritten_text = rewrite_result.rewritten_content if rewrite_result.success else ""
+                # 如果改写结果为空，则使用原文内容（避免短描述改写后无内容）
+                final_content = rewritten_text if rewritten_text else content.content
+                metadata = (rewrite_result.metadata.copy() if rewrite_result.metadata else {}) if rewrite_result.success else {}
+                metadata['original_content'] = content.content
+                metadata['original_title'] = content.title
+                metadata['original_author'] = content.author
+                article = Article(
+                    id=str(uuid.uuid4()),
+                    title=rewrite_result.title or content.title if rewrite_result.success else content.title,
+                    original_title=content.title,
+                    source=content.source_id,
+                    source_url=content.url,
+                    author=rewrite_result.author or content.author,
+                    published_at=content.published_at,
+                    content=final_content,
+                    summary=rewrite_result.summary if rewrite_result.success else "",
+                    word_count=len(final_content),
+                    metadata=metadata
+                )
+                articles.append(article)
             else:
                 article = Article.from_content(content)
                 articles.append(article)

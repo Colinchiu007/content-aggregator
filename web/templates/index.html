@@ -6,6 +6,12 @@
 <div class="page-header">
     <h1>📊 仪表盘</h1>
     <button class="btn btn-success" onclick="startCollectAll()">🚀 全源采集</button>
+    <button class="btn btn-youtube" onclick="startCollectYouTube()">▶️ 采集 YouTube</button>
+    <span style="display:inline-flex;align-items:center;gap:6px;margin-left:12px">
+        <label style="font-size:13px;color:var(--text-muted)">每个源采集</label>
+        <input id="collect-all-limit" type="number" min="1" max="50" placeholder="全部" style="width:70px;padding:4px 8px;border:1px solid var(--border);border-radius:6px">
+        <label style="font-size:13px;color:var(--text-muted)">篇（不填则全部）</label>
+    </span>
 </div>
 
 <!-- Stats -->
@@ -15,11 +21,11 @@
         <div class="stat-label">文章总数</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ configured_sources|length }}</div>
+        <div class="stat-value">{{ configured_count }}</div>
         <div class="stat-label">已配置数据源</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ sources_stats|length }}</div>
+        <div class="stat-value">{{ active_count }}</div>
         <div class="stat-label">活跃来源</div>
     </div>
     <div class="stat-card">
@@ -123,18 +129,19 @@
         <span class="card-title">🔗 快速采集</span>
     </div>
     <form id="quick-collect" onsubmit="return quickCollect(event)">
-        <div style="display:flex;gap:12px;align-items:flex-end">
-            <div class="form-group" style="flex:1;margin:0">
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div class="form-group" style="flex:2;margin:0">
                 <label class="form-label">输入 RSS URL</label>
                 <input class="form-input" name="url" placeholder="https://example.com/feed.xml" required>
             </div>
+            <div class="form-group" style="margin:0;min-width:100px">
+                <label class="form-label">采集数量 <span style="font-weight:normal;color:var(--text-muted);font-size:12px">（每个源，不填则全部）</span></label>
+                <input class="form-input" name="limit" type="number" min="1" max="50" placeholder="全部" style="width:80px">
+            </div>
             <label class="form-check">
-                <input type="checkbox" name="rewrite" checked> Rewrite
+                <input type="checkbox" name="rewrite" checked> 改写
             </label>
-            <label class="form-check">
-                <input type="checkbox" name="seo"> SEO
-            </label>
-            <button type="submit" class="btn btn-primary">Collect</button>
+            <button type="submit" class="btn btn-primary">采集</button>
         </div>
     </form>
 </div>
@@ -160,12 +167,26 @@
         if (!confirm('确定开始全源采集？')) return;
         const fd = new FormData();
         fd.append('rewrite', 'true');
-        fd.append('seo', document.querySelector('#quick-collect input[name="seo"]')?.checked ? 'true' : 'false');
         fd.append('formats', 'markdown');
+        const limitVal = document.getElementById('collect-all-limit').value;
+        if (limitVal) fd.append('limit', limitVal);
         const data = await apiPost('/api/collect/all', fd);
         if (data.task_id) {
             showToast('采集任务已启动', 'info');
             setTimeout(() => location.reload(), 1000);
+        }
+    }
+
+    // YouTube 采集
+    async function startCollectYouTube() {
+        if (!confirm('确定采集 YouTube？')) return;
+        const fd = new FormData();
+        fd.append('rewrite', 'true');
+        fd.append('formats', 'markdown');
+        const data = await apiPost('/api/collect/youtube', fd);
+        if (data.task_id) {
+            showToast('YouTube 采集任务已启动', 'info');
+            setTimeout(() => location.reload(), 1500);
         }
     }
 

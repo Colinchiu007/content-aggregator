@@ -67,7 +67,7 @@ class TwitterCollector(BaseCollector):
         else:
             raise ValueError("Twitter 采集器需要 username 或 query 参数")
 
-        response = await client.get(url, params=params, headers=headers, proxy=self.proxy)
+        response = await client.get(url, params=params, headers=headers)
         response.raise_for_status()
         data = response.json()
 

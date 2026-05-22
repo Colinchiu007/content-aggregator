@@ -2,19 +2,20 @@
 网站地图采集器
 
 支持：
-- 标准 XML Sitemap（sitemap.xml）
-- Sitemap Index（多个 sitemap 索引）
-- 嵌套 Sitemap
+- 标准 XML Sitemap（/sitemap.xml）
+- Sitemap Index（包含多个 sitemap 的索引）
+- 递归 Sitemap
 
-通用性：只要目标网站提供了 sitemap.xml，就能自动发现并采集所有链接。
-国内网站大多数提供 sitemap，是重要的标准化采集来源。
+通过法：只要目标网站提供 sitemap.xml，就能自动递归采集所有链接。
+注意事项：网站未提供 sitemap 时需要改用其他采集源。
 """
 
 import logging
 import re
 from datetime import datetime
+from xml.etree import ElementTree as ET
 
-from content_aggregator.sources.collectors.base_collector import BaseCollector
+from content_aggregator.sources.collectors.base_collector import BaseCollector, SourceResult
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,6 @@ class SitemapCollector(BaseCollector):
     SOURCE_NAME = "sitemap"
     RATE_LIMIT = 2.0
 
-    # 常见 sitemap 路径
     SITEMAP_PATHS = [
         "/sitemap.xml",
         "/sitemap_index.xml",
@@ -36,123 +36,88 @@ class SitemapCollector(BaseCollector):
         "/sitemap-news.xml",
     ]
 
-    async def _fetch(self, base_url: str | None = None, include: list[str] | None = None,
-                     exclude: list[str] | None = None, max_items: int = 100, **kwargs) -> list[dict]:
-        """
-        采集网站 sitemap
-
-        参数：
-            base_url: 网站根地址（如 https://example.com）
-            include: 只采集包含特定路径的 URL（可选）
-            exclude: 排除特定路径的 URL（可选）
-            max_items: 最大采集条数
-        """
-        import xml.etree.ElementTree as ET
-
+    async def _fetch(self, base_url=None, include=None, exclude=None, max_items=100, **kwargs):
         base_url = base_url or self.config.get("base_url")
         if not base_url:
             raise ValueError("Sitemap 采集器需要 base_url 参数")
 
-        # 去掉末尾斜杠
         base_url = base_url.rstrip("/")
-
         client = await self._get_client()
-        headers = {
-            "User-Agent": "Mozilla/5.0 (compatible; ContentAggregator/1.0; +https://github.com/Colinchiu007/content-aggregator)",
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; ContentAggregator/1.0)"}
 
         all_urls = []
 
-        # 1. 尝试 sitemap index
-        index_urls = []
-        for path in self.SITEMAP_PATHS:
-            if "index" not in path:
-                index_urls.append(base_url + path)
-
-        sitemap_xml = None
-        for url in index_urls:
+        # Try sitemap at common paths
+        sitemap_found = False
+        for path_suffix in self.SITEMAP_PATHS:
+            url = base_url + path_suffix
             try:
-                resp = await client.get(url, headers=headers, proxy=self.proxy, timeout=15)
-                if resp.status_code == 200:
+                resp = await client.get(url, headers=headers, timeout=15)
+                if resp.status_code == 200 and "xml" in resp.headers.get("content-type", ""):
                     sitemap_xml = resp.text
-                    logger.info(f"[Sitemap] 发现: {url}")
+                    logger.info(f"[Sitemap] Found: {url}")
+                    sitemap_found = True
                     break
             except Exception:
                 continue
 
-        if not sitemap_xml:
-            raise RuntimeError(f"无法找到 sitemap.xml，尝试路径: {', '.join(index_urls)}")
+        if not sitemap_found:
+            raise RuntimeError(f"无法找到 sitemap.xml，已尝试路径: {', '.join(self.SITEMAP_PATHS)}")
 
-        # 2. 解析
         root = ET.fromstring(sitemap_xml)
-
-        # 检测命名空间
         ns = {}
         if root.tag.startswith("{"):
             ns[""] = root.tag.split("}")[0].strip("{")
         else:
             ns[""] = ""
 
-        sitemap_ns = "" if "" in ns else "sm"
-
-        # 处理 sitemap index
-        is_index = root.tag.endswith("sitemapindex") or root.tag.endswith("}sitemapindex")
+        is_index = root.tag.endswith("sitemapindex") or "sitemapindex" in root.tag
 
         if is_index:
-            # 收集子 sitemap URL
             child_sitemaps = []
-            for sm in root.findall(f".//{{{ns['']}}}sitemap") if ns[''] else root.findall(".//sitemap"):
-                loc = sm.find(f"{{{ns['']}}}loc") if ns[''] else sm.find("loc")
+            tag_sitemap = "{{{0}}}sitemap".format(ns[""]) if ns[""] else "sitemap"
+            tag_loc = "{{{0}}}loc".format(ns[""]) if ns[""] else "loc"
+            for sm in root.findall(".//" + tag_sitemap):
+                loc = sm.find(tag_loc)
                 if loc is not None and loc.text:
                     child_sitemaps.append(loc.text)
 
-            logger.info(f"[Sitemap] 发现 {len(child_sitemaps)} 个子 sitemap")
-
-            # 逐个采集（最多 5 个，避免过多请求）
+            logger.info(f"[Sitemap] Found {len(child_sitemaps)} child sitemaps")
             for child_url in child_sitemaps[:5]:
                 try:
-                    resp = await client.get(child_url, headers=headers, proxy=self.proxy, timeout=15)
+                    resp = await client.get(child_url, headers=headers, timeout=15)
                     child_urls = self._extract_urls(resp.text, ns, include, exclude)
                     all_urls.extend(child_urls)
                 except Exception as e:
-                    logger.warning(f"[Sitemap] 子 sitemap 采集失败: {child_url} - {e}")
+                    logger.warning(f"[Sitemap] Child sitemap failed: {child_url} - {e}")
         else:
-            # 直接解析 url 列表
             all_urls = self._extract_urls(sitemap_xml, ns, include, exclude)
 
-        # 限制数量
         all_urls = all_urls[:max_items]
-
-        logger.info(f"[Sitemap] 采集到 {len(all_urls)} 个 URL")
+        logger.info(f"[Sitemap] Collected {len(all_urls)} URLs")
         return all_urls
 
-    def _extract_urls(self, xml_text: str, ns: dict, include: list | None, exclude: list | None) -> list[dict]:
-        """从 sitemap XML 中提取 URL"""
-        import xml.etree.ElementTree as ET
-
+    def _extract_urls(self, xml_text, ns, include, exclude):
         results = []
         try:
             root = ET.fromstring(xml_text)
-            url_ns = "" if "" in ns else "sm"
+            tag_url = "{{{0}}}url".format(ns[""]) if ns[""] else "url"
+            tag_loc = "{{{0}}}loc".format(ns[""]) if ns[""] else "loc"
+            tag_lastmod = "{{{0}}}lastmod".format(ns[""]) if ns[""] else "lastmod"
 
-            for url_el in root.findall(f".//{{{ns['']}}}url") if ns[''] else root.findall(".//url"):
-                loc_el = url_el.find(f"{{{ns['']}}}loc") if ns[''] else url_el.find("loc")
-                if loc_el is None:
+            for url_el in root.findall(".//" + tag_url):
+                loc_el = url_el.find(tag_loc)
+                if loc_el is None or not loc_el.text:
                     continue
+                url = loc_el.text
 
-                url = loc_el.text or ""
-                if not url:
-                    continue
-
-                # 过滤
                 if include and not any(p in url for p in include):
                     continue
                 if exclude and any(p in url for p in exclude):
                     continue
 
-                # 取最后修改时间
-                lastmod = url_el.find(f"{{{ns['']}}}lastmod") if ns[''] else url_el.find("lastmod")
-                lastmod_str = lastmod.text if lastmod is not None else None
+                lastmod_el = url_el.find(tag_lastmod)
+                lastmod_str = lastmod_el.text if lastmod_el is not None else None
                 published = None
                 if lastmod_str:
                     try:
@@ -161,17 +126,72 @@ class SitemapCollector(BaseCollector):
                         pass
 
                 results.append({
-                    "title": "",
-                    "content": "",
                     "url": url,
-                    "author": "",
                     "published_at": published,
-                    "summary": "",
-                    "tags": [],
-                    "source": self.SOURCE_NAME,
-                    "metadata": {"lastmod": lastmod_str}
+                    "metadata": {"lastmod": lastmod_str},
                 })
         except ET.ParseError as e:
-            logger.warning(f"[Sitemap] XML 解析失败: {e}")
-
+            logger.warning(f"[Sitemap] XML parse failed: {e}")
         return results
+
+    async def collect(self, **kwargs):
+        """采集 sitemap 中的页面内容"""
+        from content_aggregator.sources.collectors.base_collector import SourceResult
+
+        base_url = kwargs.get("base_url") or self.config.get("base_url", "")
+        max_items = kwargs.get("max_items", 100)
+
+        if not base_url:
+            return SourceResult(success=False, data=[], error="base_url is required", source_name="sitemap", collected_count=0)
+
+        try:
+            url_dicts = await self._fetch(base_url=base_url, max_items=max_items)
+        except Exception as e:
+            return SourceResult(success=False, data=[], error=str(e), source_name="sitemap", collected_count=0)
+
+        if not url_dicts:
+            return SourceResult(success=True, data=[], error=None, source_name="sitemap", collected_count=0)
+
+        contents = []
+        client = await self._get_client()
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; ContentAggregator/1.0)"}
+
+        for item in url_dicts[:max_items]:
+            url = item.get("url", "")
+            if not url:
+                continue
+            try:
+                resp = await client.get(url, headers=headers, timeout=15)
+                if resp.status_code != 200:
+                    continue
+                html = resp.text
+
+                t = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+                title = t.group(1).strip() if t else ""
+
+                clean = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.IGNORECASE | re.DOTALL)
+                paras = re.findall(r"<p[^>]*>(.*?)</p>", clean, re.IGNORECASE | re.DOTALL)
+                clean_paras = []
+                for p in paras:
+                    text = re.sub(r"<[^>]+>", "", p).strip()
+                    if text and len(text) > 20:
+                        clean_paras.append(text)
+                body = "\n\n".join(clean_paras[:10])
+
+                if not body:
+                    text_only = re.sub(r"<[^>]+>", " ", clean)
+                    text_only = re.sub(r"\s+", " ", text_only).strip()
+                    body = text_only[:2000]
+
+                contents.append({
+                    "title": title,
+                    "content": body,
+                    "url": url,
+                    "source": "Sitemap - " + base_url,
+                    "word_count": len(body),
+                })
+            except Exception as e:
+                logger.warning(f"[Sitemap] Failed {url}: {e}")
+                continue
+
+        return SourceResult(success=True, data=contents, error=None, source_name="sitemap", collected_count=len(contents))

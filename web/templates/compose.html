@@ -7,7 +7,7 @@
     <h1>✏️ 手动输入</h1>
 </div>
 
-<div class="card" style="max-width:800px">
+<div class="card" style="max-width:800px;margin-bottom:16px">
     <form id="compose-form" onsubmit="return handleCompose(event)">
         <div class="form-group">
             <label class="form-label">标题（可选）</label>
@@ -16,23 +16,35 @@
 
         <div class="form-group">
             <label class="form-label">内容</label>
-            <textarea class="form-textarea" name="content" placeholder="粘贴或输入文章内容..." required style="min-height:300px"></textarea>
+            <textarea class="form-textarea" name="content" id="compose-content" placeholder="粘贴或输入文章内容..." required style="min-height:200px"></textarea>
         </div>
 
-        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
             <div class="form-group" style="margin:0">
                 <label class="form-label">处理方式</label>
                 <select class="form-select" name="action" id="compose-action" onchange="toggleRewrite()">
                     <option value="export">直接导出</option>
-                    <option value="rewrite">AI 改写后导出</option>
+                    <option value="rewrite" selected>AI 改写后导出</option>
                 </select>
             </div>
 
             <div class="form-group" style="margin:0" id="rewrite-option">
-                <label class="form-check">
-                    <input type="checkbox" name="rewrite_first" checked>
-                    <span style="font-size:14px">先改写再导出</span>
-                </label>
+                <label class="form-label">改写策略</label>
+                <select class="form-select" name="strategy">
+                    <option value="REWRITE" selected>深度改写</option>
+                    <option value="PARAPHRASE">伪原创</option>
+                    <option value="STYLE_TRANSFER">风格转换</option>
+                    <option value="SUMMARIZE">摘要</option>
+                    <option value="EXPAND">扩写</option>
+                </select>
+            </div>
+
+            <div class="form-group" style="margin:0">
+                <label class="form-label">翻译选项</label>
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+                    <input type="checkbox" id="compose-translate" name="translate" value="yes" style="accent-color:var(--primary)">
+                    <label for="compose-translate" style="margin:0;font-size:14px;color:var(--text-muted);cursor:pointer">英文先翻译成中文再改写</label>
+                </div>
             </div>
 
             <div class="form-group" style="margin:0">
@@ -46,7 +58,7 @@
                 </select>
             </div>
 
-            <button type="submit" class="btn btn-primary" style="margin-top:18px">
+            <button type="submit" class="btn btn-primary" style="margin-top:0">
                 🚀 处理
             </button>
         </div>
@@ -54,19 +66,57 @@
 </div>
 
 <!-- 任务状态 -->
-<div id="compose-status" style="margin-top:16px;display:none">
+<div id="compose-status" style="display:none">
     <div class="task-status" id="compose-task">
         <span class="spinner"></span>
         <span>处理中...</span>
+    </div>
+</div>
+
+<!-- 改写结果：左右对照 -->
+<div id="compose-result" style="display:none">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        {# 左侧：原文 #}
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
+            <div style="background:#f5f5f5;padding:10px 16px;border-bottom:1px solid var(--border)">
+                <span style="font-weight:600;font-size:14px;color:var(--text-muted)">📄 原文</span>
+            </div>
+            <div id="result-original" style="padding:16px;max-height:500px;overflow-y:auto;background:var(--bg)">
+                <pre id="original-text" style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:14px;color:var(--text-muted)"></pre>
+            </div>
+        </div>
+
+        {# 右侧：改写后 #}
+        <div style="border:2px solid var(--warning);border-radius:8px;overflow:hidden">
+            <div style="background:var(--warning);padding:10px 16px;display:flex;align-items:center;gap:8px">
+                <span style="font-weight:600;font-size:14px;color:#fff">✨ 改写后</span>
+                <span id="result-strategy" style="font-size:12px;color:rgba(255,255,255,0.8)"></span>
+            </div>
+            <div id="result-rewritten" style="padding:16px;max-height:500px;overflow-y:auto">
+                <pre id="result-body" style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:14px"></pre>
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline btn-sm" onclick="copyResult()">📋 复制改写内容</button>
+        <a id="result-link" href="#" class="btn btn-primary btn-sm" style="display:none;text-decoration:none">查看详情页 →</a>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+    const STRATEGY_NAMES = {
+        'REWRITE': '深度改写',
+        'PARAPHRASE': '伪原创',
+        'STYLE_TRANSFER': '风格转换',
+        'SUMMARIZE': '摘要',
+        'EXPAND': '扩写'
+    };
+
     function toggleRewrite() {
-        const action = document.getElementById('compose-action').value;
-        document.getElementById('rewrite-option').style.display = action === 'export' ? 'block' : 'none';
+        // currently no special UI toggle needed, form submits different action
     }
 
     async function handleCompose(e) {
@@ -74,22 +124,21 @@
         const form = e.target;
         const fd = new FormData(form);
 
-        // 处理 action 字段
-        if (fd.get('action') === 'export' && fd.get('rewrite_first')) {
-            fd.set('action', 'rewrite');
-        }
+        // 显示原文
+        const originalContent = document.getElementById('compose-content').value;
+        document.getElementById('original-text').textContent = originalContent;
 
         document.getElementById('compose-status').style.display = 'block';
+        document.getElementById('compose-result').style.display = 'none';
         const data = await apiPost('/api/compose', fd);
 
         if (data.task_id) {
             showToast('任务已启动', 'info');
-            // 轮询任务状态
-            pollTask(data.task_id);
+            pollTask(data.task_id, fd.get('strategy') || 'REWRITE');
         }
     }
 
-    async function pollTask(taskId) {
+    async function pollTask(taskId, strategy) {
         const poll = async () => {
             const resp = await fetch('/api/tasks/' + taskId);
             const task = await resp.json();
@@ -98,6 +147,20 @@
             if (task.status === 'done') {
                 el.innerHTML = `<span class="task-dot done"></span><span>${task.message}</span>`;
                 showToast(task.message, 'success');
+                document.getElementById('result-strategy').textContent = STRATEGY_NAMES[strategy] || strategy;
+
+                const articleId = task.result && task.result.article_id;
+                if (articleId) {
+                    const detailResp = await fetch('/api/articles/' + articleId);
+                    const detail = await detailResp.json();
+                    if (detail.content) {
+                        document.getElementById('result-body').textContent = detail.content;
+                        const link = document.getElementById('result-link');
+                        link.href = '/articles/' + articleId;
+                        link.style.display = 'inline-block';
+                    }
+                }
+                document.getElementById('compose-result').style.display = 'block';
                 return;
             } else if (task.status === 'error') {
                 el.innerHTML = `<span class="task-dot error"></span><span>${task.message}</span>`;
@@ -111,11 +174,15 @@
         setTimeout(poll, 1500);
     }
 
-    // WebSocket 更新
+    function copyResult() {
+        const text = document.getElementById('result-body').textContent;
+        navigator.clipboard.writeText(text).then(() => showToast('已复制', 'success'));
+    }
+
     function onTaskUpdate(msg) {
         if (msg.status === 'done') {
             const el = document.getElementById('compose-task');
-            el.innerHTML = `<span class="task-dot done"></span><span>${msg.message}</span>`;
+            if (el) el.innerHTML = `<span class="task-dot done"></span><span>${msg.message}</span>`;
             showToast(msg.message, 'success');
         }
     }
