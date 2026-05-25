@@ -33,6 +33,8 @@ from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfi
 from content_aggregator.processors.formatter import ContentFormatter
 from content_aggregator.processors.translator import TranslatorProcessor, TranslationConfig, TranslationLanguage
 from content_aggregator.processors.seo import SEOProcessor, SEOConfig
+from content_aggregator.processors.filter.sensitive import SensitiveFilter, SensitiveFilterConfig
+from content_aggregator.processors.filter.dedup import DedupFilter, DedupFilterConfig
 from content_aggregator.exporters import Exporter
 
 
@@ -40,7 +42,7 @@ class ContentPipeline:
     """
     内容处理流水线
 
-    流程：RSS采集 → 内容改写 → 格式化 → 导出
+    流程：RSS采集 → 敏感词过滤 → 去重过滤 → 内容改写 → SEO优化 → 格式化 → 导出
 
     使用示例：
         config = {
@@ -51,6 +53,10 @@ class ContentPipeline:
             },
             "export": {
                 "output_dir": "./output/exports"
+            },
+            "filter": {
+                "sensitive": {"enabled": true},
+                "dedup": {"enabled": true}
             }
         }
         
@@ -68,6 +74,8 @@ class ContentPipeline:
                 - sources: 数据源配置
                 - export: 导出配置
                 - http: HTTP配置（包含proxy）
+                - filter: 过滤配置（可选）
+                - translation: 翻译配置（可选）
         """
         self.config = config
         self.llm_config = config.get("llm", {})
@@ -78,10 +86,54 @@ class ContentPipeline:
 
         self.sources_config = config.get("sources", {})
         self.translation_config = config.get("translation", {})
+        self.filter_config = config.get("filter", {})
 
         # 初始化组件
         self.rewrite_processor: RewriteProcessor | None = None
         self.exporter = Exporter(self.output_dir)
+        
+        # 初始化过滤器
+        self._init_filters()
+
+    def _init_filters(self):
+        """初始化过滤器"""
+        # 敏感词过滤器
+        sensitive_config_dict = self.filter_config.get("sensitive", {})
+        sensitive_enabled = sensitive_config_dict.get("enabled", True)
+        sensitive_words = sensitive_config_dict.get("words", [
+            "色情", "赌博", "毒品", "暴力", "恐怖",
+            "诈骗", "传销", "非法集资",
+            "加微信", "扫码", "免费领", "点击就送"
+        ])
+        sensitive_replace_char = sensitive_config_dict.get("replace_char", "*")
+        sensitive_strict_mode = sensitive_config_dict.get("strict_mode", False)
+        
+        sensitive_config = SensitiveFilterConfig(
+            enabled=sensitive_enabled,
+            words=sensitive_words,
+            replace_char=sensitive_replace_char,
+            strict_mode=sensitive_strict_mode
+        )
+        self.sensitive_filter = SensitiveFilter(sensitive_config)
+        
+        # 去重过滤器
+        dedup_config_dict = self.filter_config.get("dedup", {})
+        dedup_enabled = dedup_config_dict.get("enabled", True)
+        dedup_threshold = dedup_config_dict.get("similarity_threshold", 0.8)
+        dedup_exact = dedup_config_dict.get("exact_dedup", True)
+        dedup_fuzzy = dedup_config_dict.get("fuzzy_dedup", True)
+        dedup_min_length = dedup_config_dict.get("min_length", 50)
+        
+        dedup_config = DedupFilterConfig(
+            enabled=dedup_enabled,
+            similarity_threshold=dedup_threshold,
+            exact_dedup=dedup_exact,
+            fuzzy_dedup=dedup_fuzzy,
+            min_length=dedup_min_length
+        )
+        self.dedup_filter = DedupFilter(dedup_config)
+        
+        logger.info(f"[Pipeline] 过滤器初始化完成 - 敏感词: {sensitive_enabled}, 去重: {dedup_enabled}")
 
     async def __aenter__(self):
         """异步上下文管理器入口"""
@@ -93,6 +145,47 @@ class ContentPipeline:
         """异步上下文管理器退出"""
         if self.rewrite_processor:
             await self.rewrite_processor.__aexit__(exc_type, exc_val, exc_tb)
+
+    async def _apply_filters(self, content: Content) -> tuple[bool, str]:
+        """
+        应用过滤器
+        
+        参数：
+            content: Content 对象
+            
+        返回：
+            (should_block: bool, reason: str)
+        """
+        # 1. 敏感词过滤
+        if self.sensitive_filter.config.enabled:
+            text_to_check = f"{content.title}\n{content.content}"
+            filter_result = self.sensitive_filter.process(text_to_check)
+            
+            if filter_result["action"] == "block":
+                matched_words = ", ".join(filter_result["matched_words"])
+                logger.warning(f"[过滤] 敏感词拦截: {content.title[:40]}... (匹配词: {matched_words})")
+                return True, f"敏感词: {matched_words}"
+            
+            # 更新 content（可能已替换敏感词）
+            if filter_result["has_sensitive"] and not filter_result["action"] == "block":
+                # 非严格模式：替换敏感词后继续
+                content.title = filter_result["filtered_text"].split("\n")[0] if "\n" in filter_result["filtered_text"] else content.title
+                # 注意：这里简单处理，实际应该更精细地替换
+        
+        # 2. 去重过滤
+        if self.dedup_filter.config.enabled:
+            content_dict = {
+                "title": content.title,
+                "content": content.content
+            }
+            dedup_result = await self.dedup_filter.process(content_dict)
+            
+            if dedup_result["action"] == "block":
+                similar_to = ", ".join(dedup_result["similar_to"][:3])
+                logger.info(f"[过滤] 去重拦截: {content.title[:40]}... (相似: {similar_to})")
+                return True, f"重复内容: {similar_to}"
+        
+        return False, ""
 
     async def process_url(self, url: str, rewrite: bool = True, strategy: RewriteStrategy | str | None = None, rewrite_config: RewriteConfig | None = None, seo: bool = False, limit: int | None = None) -> list[Article]:
         """
@@ -125,8 +218,20 @@ class ContentPipeline:
 
         articles = []
         items = result["data"][:limit] if limit else result["data"]
+        
+        filtered_count = {"sensitive": 0, "dedup": 0}
+        
         for content in items:
             logger.info(f"Collected: {content.title}")
+
+            # === 过滤步骤 ===
+            should_block, reason = await self._apply_filters(content)
+            if should_block:
+                if "敏感词" in reason:
+                    filtered_count["sensitive"] += 1
+                else:
+                    filtered_count["dedup"] += 1
+                continue
 
             # 改写
             if rewrite and self.rewrite_processor:
@@ -185,6 +290,7 @@ class ContentPipeline:
                     author=getattr(content, 'author', None) or getattr(content, 'name', None) or '',
                 ))
 
+        logger.info(f"[Pipeline] 过滤统计 - 敏感词: {filtered_count['sensitive']}, 去重: {filtered_count['dedup']}, 通过: {len(articles)}")
         return articles
 
     async def process_all_sources(
@@ -228,6 +334,7 @@ class ContentPipeline:
         all_articles: list[Article] = []
         source_results: list[dict] = []
         total_skipped = 0
+        total_filtered = {"sensitive": 0, "dedup": 0}
 
         # 初始化翻译器（如果需要）
         translator = None
@@ -310,29 +417,43 @@ class ContentPipeline:
                         if limit_per_source and source_article_count >= limit_per_source:
                             break
                         source_article_count += 1
-                        article = Article(
+                        
+                        # 创建 Content 对象用于过滤
+                        content = Content(
                             id=str(uuid.uuid4()),
                             title=item_data.get("title", ""),
                             content=item_data.get("content", ""),
-                            source=item_data.get("source", source_type),
-                            source_url=item_data.get("url", ""),
+                            source_type=source_type,
+                            url=item_data.get("url", ""),
                             author=item_data.get("author", ""),
                             published_at=item_data.get("published_at"),
                             summary=item_data.get("summary", ""),
-                            word_count=len(item_data.get("content", "")),
+                        )
+                        
+                        # === 过滤步骤 ===
+                        should_block, reason = await self._apply_filters(content)
+                        if should_block:
+                            if "敏感词" in reason:
+                                total_filtered["sensitive"] += 1
+                            else:
+                                total_filtered["dedup"] += 1
+                            continue
+
+                        article = Article(
+                            id=content.id,
+                            title=content.title,
+                            content=content.content,
+                            source=content.source_type,
+                            source_url=content.url,
+                            author=content.author,
+                            published_at=content.published_at,
+                            summary=content.summary,
+                            word_count=len(content.content),
                         )
 
                         # 改写
                         if rewrite and self.rewrite_processor and article.word_count > 0:
                             try:
-                                content = Content(
-                                    id=article.id,
-                                    title=article.title,
-                                    content=article.content,
-                                    source_type=article.source,
-                                    url=article.source_url,
-                                    author=article.author,
-                                )
                                 rewrite_result = await self.rewrite_processor.rewrite(content)
                                 if rewrite_result.success:
                                     article.content = rewrite_result.rewritten_content
@@ -344,20 +465,12 @@ class ContentPipeline:
                         # 翻译
                         if translate and translator and translation_lang and article.word_count > 0:
                             try:
-                                content = Content(
-                                    id=article.id,
-                                    title=article.title,
-                                    content=article.content,
-                                    source_type=article.source,
-                                    url=article.source_url,
-                                )
                                 trans_config = TranslationConfig(
                                     target_language=translation_lang,
                                     tone=self.translation_config.get("tone", "casual"),
                                 )
                                 trans_result = await translator.translate(content, trans_config)
                                 if trans_result.success:
-                                    article.original_title = article.title
                                     article.title = f"{article.title} ({translation_lang.value})"
                                     article.content = trans_result.translated_content
                                     article.word_count = len(trans_result.translated_content)
@@ -367,14 +480,7 @@ class ContentPipeline:
                         # SEO 优化
                         if seo and seo_processor and article.word_count > 0:
                             try:
-                                seo_content = Content(
-                                    id=article.id,
-                                    title=article.title,
-                                    content=article.content,
-                                    source_type=article.source,
-                                    url=article.source_url,
-                                )
-                                seo_result = await seo_processor.optimize(seo_content)
+                                seo_result = await seo_processor.optimize(content)
                                 if seo_result.success:
                                     article.tags = seo_result.optimized_tags
                                     article.metadata["seo_keywords"] = seo_result.keywords
@@ -415,7 +521,7 @@ class ContentPipeline:
 
         # Cleanup SEO processor
         if seo_processor:
-            await seo_processor.__aexit__(None, None, None)
+            await seo_processor.__a_exit__(None, None, None)
 
         print(f"\n{'=' * 60}")
         print(f"汇总")
@@ -423,6 +529,7 @@ class ContentPipeline:
         print(f"  数据源总数: {len(source_results)}")
         print(f"  成功: {success_sources}")
         print(f"  跳过: {total_skipped}")
+        print(f"  过滤 - 敏感词: {total_filtered['sensitive']}, 去重: {total_filtered['dedup']}")
         print(f"  文章总数: {len(all_articles)}")
         print(f"  耗时: {elapsed:.1f}s")
         print(f"{'=' * 60}")
@@ -434,6 +541,7 @@ class ContentPipeline:
                 "total_sources": len(source_results),
                 "success": success_sources,
                 "skipped": total_skipped,
+                "filtered": total_filtered,
                 "total_articles": len(all_articles),
                 "elapsed": elapsed,
             }
@@ -479,12 +587,8 @@ class ContentPipeline:
         translation_lang = None
         if translate and self.translation_config.get("enabled", False):
             lang_code = target_language or self.translation_config.get("default_language", "EN")
-            try:
-                translation_lang = TranslationLanguage(lang_code)
-            except ValueError:
-                translate = False
-            else:
-                translator = TranslatorProcessor(self.config)
+            translation_lang = TranslationLanguage(lang_code)
+            translator = TranslatorProcessor(self.config)
 
         # 获取解析器
         source_configs_map = {
@@ -531,12 +635,14 @@ class ContentPipeline:
                     "error": result.error,
                 })
 
+                logger.info(f'[process_source] DEBUG: checking result.success={result.success}, result.data type={type(result.data)}, len={len(result.data) if result.data else 0}')
                 if result.success and result.data:
                     # result.data 是 dict 列表，需要转为 Content 对象
                     from content_aggregator.models import Content
                     contents = []
+                    logger.info(f'[process_source] DEBUG: entering content conversion loop, data={result.data[:2] if len(result.data) > 2 else result.data}')
                     for d in (result.data[:limit_per_source] if limit_per_source else result.data):
-                        contents.append(Content(
+                        content = Content(
                             id=d.get("id", str(uuid.uuid4())),
                             source_id=d.get("source", "youtube"),
                             source_type=d.get("source", "youtube"),
@@ -547,7 +653,16 @@ class ContentPipeline:
                             published_at=d.get("published_at"),
                             summary=d.get("summary", ""),
                             metadata=d.get("metadata", {}),
-                        ))
+                        )
+                        
+                        # === 过滤步骤 ===
+                        should_block, reason = await self._apply_filters(content)
+                        if should_block:
+                            logger.info(f"[过滤] 跳过: {content.title[:40]} ({reason})")
+                            continue
+                        
+                        contents.append(content)
+                    
                     articles = await self.process_contents(contents, rewrite=rewrite)
                     logger.info(f'[process_source] {entry_name}: {len(contents)} contents -> {len(articles)} articles')
                     all_articles.extend(articles)
@@ -647,34 +762,52 @@ class ContentPipeline:
         articles = []
 
         for content in contents:
-            # 改写
-            if rewrite and self.rewrite_processor:
-                rewrite_result = await self.rewrite_processor.rewrite(content)
-                rewritten_text = rewrite_result.rewritten_content if rewrite_result.success else ""
-                # 如果改写结果为空，则使用原文内容（避免短描述改写后无内容）
-                final_content = rewritten_text if rewritten_text else content.content
-                metadata = (rewrite_result.metadata.copy() if rewrite_result.metadata else {}) if rewrite_result.success else {}
-                metadata['original_content'] = content.content
-                metadata['original_title'] = content.title
-                metadata['original_author'] = content.author
-                article = Article(
-                    id=str(uuid.uuid4()),
-                    title=rewrite_result.title or content.title if rewrite_result.success else content.title,
-                    original_title=content.title,
-                    source=content.source_id,
-                    source_url=content.url,
-                    author=rewrite_result.author or content.author,
-                    published_at=content.published_at,
-                    content=final_content,
-                    summary=rewrite_result.summary if rewrite_result.success else "",
-                    word_count=len(final_content),
-                    metadata=metadata
-                )
-                articles.append(article)
-            else:
-                article = Article.from_content(content)
-                articles.append(article)
+            try:
+                # === 过滤步骤 ===
+                should_block, reason = await self._apply_filters(content)
+                if should_block:
+                    logger.info(f"[process_contents] 过滤跳过: {content.title[:40]} ({reason})")
+                    continue
 
+                # 改写
+                if rewrite and self.rewrite_processor:
+                    logger.info(f"[process_contents] Rewriting: {content.title[:60]}")
+                    rewrite_result = await self.rewrite_processor.rewrite(content)
+                    rewritten_text = rewrite_result.rewritten_content if rewrite_result.success else ""
+                    # 如果改写结果为空，则使用原文内容（避免短描述改写后无内容）
+                    final_content = rewritten_text if rewritten_text else content.content
+                    metadata = (rewrite_result.metadata.copy() if rewrite_result.metadata else {}) if rewrite_result.success else {}
+                    metadata['original_content'] = content.content
+                    metadata['original_title'] = content.title
+                    metadata['original_author'] = content.author
+                    article = Article(
+                        id=str(uuid.uuid4()),
+                        title=rewrite_result.title or content.title if rewrite_result.success else content.title,
+                        original_title=content.title,
+                        source=content.source_id,
+                        source_url=content.url,
+                        author=content.author,
+                        published_at=content.published_at,
+                        content=final_content,
+                        summary=rewrite_result.summary if rewrite_result.success else "",
+                        word_count=len(final_content),
+                        metadata=metadata
+                    )
+                    articles.append(article)
+                    logger.info(f"[process_contents] Done: {content.title[:60]} -> {len(final_content)} chars")
+                else:
+                    article = Article.from_content(content)
+                    articles.append(article)
+            except Exception as e:
+                logger.error(f"[process_contents] Error processing '{content.title[:60]}': {e}", exc_info=True)
+                # fallback: 用原文直接创建文章
+                try:
+                    article = Article.from_content(content)
+                    articles.append(article)
+                except Exception:
+                    logger.error(f"[process_contents] Fallback also failed for '{content.title[:60]}'")
+
+        logger.info(f"[process_contents] Total: {len(contents)} contents -> {len(articles)} articles")
         return articles
 
     async def process_and_export(
@@ -774,4 +907,4 @@ def quick_export(content: str, title: str, output_dir: str, format_type: str = "
         word_count=len(content),
     )
     exporter = Exporter(output_dir)
-    return exporter.export(article, format_type)
+    return str(exporter.export(article, format_type))

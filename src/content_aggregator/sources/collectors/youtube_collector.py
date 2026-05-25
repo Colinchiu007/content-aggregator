@@ -70,10 +70,10 @@ class YouTubeCollector(BaseCollector):
                 kwargs["channel_id"] = bu
         try:
             data = await self._fetch(**kwargs)
-            return SourceResult(success=True, data=data, collected_count=len(data))
+            return SourceResult(success=True, data=data, error=None, source_name=self.SOURCE_NAME, collected_count=len(data))
         except Exception as e:
-            self.logger.error(f"collect failed: {e}")
-            return SourceResult(success=False, data=[], error=str(e))
+            logger.error(f"collect failed: {e}")
+            return SourceResult(success=False, data=[], error=str(e), source_name=self.SOURCE_NAME)
 
     async def _fetch(self, channel_id: str | None = None, playlist_id: str | None = None,
                      max_results: int = 20, search_query: str | None = None,
