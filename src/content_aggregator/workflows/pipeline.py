@@ -36,6 +36,7 @@ from content_aggregator.processors.seo import SEOProcessor, SEOConfig
 from content_aggregator.processors.filter.sensitive import SensitiveFilter, SensitiveFilterConfig
 from content_aggregator.processors.filter.dedup import DedupFilter, DedupFilterConfig
 from content_aggregator.exporters import Exporter
+from content_aggregator.notifications import create_notifiers, NotificationMessage
 
 
 class ContentPipeline:
@@ -95,6 +96,9 @@ class ContentPipeline:
         # 初始化过滤器
         self._init_filters()
 
+        # 初始化通知器
+        self._init_notifiers()
+
     def _init_filters(self):
         """初始化过滤器"""
         # 敏感词过滤器
@@ -134,6 +138,30 @@ class ContentPipeline:
         self.dedup_filter = DedupFilter(dedup_config)
         
         logger.info(f"[Pipeline] 过滤器初始化完成 - 敏感词: {sensitive_enabled}, 去重: {dedup_enabled}")
+
+    def _init_notifiers(self):
+        """初始化通知器"""
+        notification_config = self.config.get("notifications", {})
+        self.notifiers = create_notifiers({"notifications": notification_config})
+        names = [n.get_name() for n in self.notifiers]
+        logger.info(f"[Pipeline] 通知器初始化完成: {names}")
+
+    async def _notify(self, title: str, body: str, level: str = "info",
+                       source_name: str = "", articles_count: int = 0,
+                       duration: float = 0.0, data: dict | None = None):
+        """发送通知到所有通知器"""
+        msg = NotificationMessage(
+            title=title, body=body, level=level,
+            source_name=source_name, articles_count=articles_count,
+            duration=duration, data=data or {}
+        )
+        results = []
+        for notifier in self.notifiers:
+            result = await notifier.notify(msg)
+            results.append(result)
+            if not result.success:
+                logger.warning(f"[Pipeline] 通知失败 ({notifier.get_name()}): {result.error}")
+        return results
 
     async def __aenter__(self):
         """异步上下文管理器入口"""
@@ -533,6 +561,26 @@ class ContentPipeline:
         print(f"  文章总数: {len(all_articles)}")
         print(f"  耗时: {elapsed:.1f}s")
         print(f"{'=' * 60}")
+
+        # 发送采集完成通知
+        failed_names = [r["source_name"] for r in source_results if not r["success"]]
+        notify_level = "success" if total_skipped == 0 else ("warning" if total_skipped < success_sources else "error")
+        notify_body_lines = [
+            f"数据源: {len(source_results)} 个（成功 {success_sources}，跳过 {total_skipped}）",
+            f"文章: {len(all_articles)} 篇",
+            f"过滤: 敏感词 {total_filtered['sensitive']} 篇，去重 {total_filtered['dedup']} 篇",
+            f"耗时: {elapsed:.1f}s",
+        ]
+        if failed_names:
+            notify_body_lines.append(f"失败源: {', '.join(failed_names)}")
+        await self._notify(
+            title="采集任务完成",
+            body="\n".join(notify_body_lines),
+            level=notify_level,
+            articles_count=len(all_articles),
+            duration=elapsed,
+            data={"failed_sources": failed_names, "filtered": total_filtered}
+        )
 
         return {
             "articles": all_articles,

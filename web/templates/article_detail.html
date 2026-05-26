@@ -21,6 +21,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn btn-outline" onclick="copyContent()">📋 复制改写内容</button>
         <button class="btn btn-primary" onclick="exportArticle('markdown')">导出 MD</button>
+        <button class="btn btn-outline" onclick="exportArticle('pdf')">导出 PDF</button>
     </div>
 </div>
 
@@ -184,18 +185,41 @@
     }
 
     async function exportArticle(format) {
-        const params = new URLSearchParams();
-        params.append('title', ARTICLE_TITLE);
-        params.append('content', ARTICLE_CONTENT);
-        params.append('action', 'export');
-        params.append('format_type', format);
-        const resp = await fetch('/api/compose', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: params.toString()
-        });
-        const data = await resp.json();
-        if (data.task_id) showToast('导出任务已启动', 'info');
+        if (format === 'pdf') {
+            // PDF 导出：直接下载
+            try {
+                const articleData = await (await fetch('/api/articles/' + ARTICLE_ID)).json();
+                const resp = await fetch('/api/export/pdf', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(articleData)
+                });
+                if (!resp.ok) throw new Error('PDF 导出失败');
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = (ARTICLE_TITLE || 'article').replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_') + '.pdf';
+                a.click();
+                URL.revokeObjectURL(url);
+                showToast('PDF 已下载', 'success');
+            } catch(e) {
+                showToast('PDF 导出失败: ' + e.message, 'error');
+            }
+        } else {
+            const params = new URLSearchParams();
+            params.append('title', ARTICLE_TITLE);
+            params.append('content', ARTICLE_CONTENT);
+            params.append('action', 'export');
+            params.append('format_type', format);
+            const resp = await fetch('/api/compose', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: params.toString()
+            });
+            const data = await resp.json();
+            if (data.task_id) showToast('导出任务已启动', 'info');
+        }
     }
 </script>
 {% endblock %}

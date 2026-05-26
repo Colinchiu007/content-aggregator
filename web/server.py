@@ -20,6 +20,7 @@ import asyncio
 import json
 import os
 import sys
+import tempfile
 import time
 import uuid
 from datetime import datetime
@@ -27,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, Form, Query, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
 
@@ -811,6 +812,25 @@ async def api_delete_article(article_id: str):
     if article_store.delete(article_id):
         return JSONResponse({"success": True})
     return JSONResponse({"success": False, "error": "文章不存在"})
+
+
+@app.post("/api/export/pdf")
+async def api_export_pdf(request: Request):
+    """导出文章为 PDF"""
+    try:
+        body = await request.json()
+        from content_aggregator.models import Article as ArticleModel
+        from content_aggregator.exporters import PDFExporter
+        art = ArticleModel.from_dict(body)
+        exp = PDFExporter()
+        safe_title = "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in art.title)[:50]
+        out_path = os.path.join(tempfile.gettempdir(), f"{safe_title}.pdf")
+        result = exp.export(art, out_path)
+        if not result.success:
+            raise RuntimeError(result.error)
+        return FileResponse(out_path, media_type="application/pdf", filename="article.pdf")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/articles/clear")
