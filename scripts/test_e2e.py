@@ -145,7 +145,7 @@ async def test_4_process_source_mock():
             success=True,
             rewritten_content=f"[改写] {content.content[:50]}",
             title=content.title + "（改）",
-            summary="改写摘要", style="narrative",
+            summary="改写摘要",
         )
     orig_rw = rw_mod.RewriteProcessor.rewrite
     rw_mod.RewriteProcessor.rewrite = mock_rw

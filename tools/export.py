@@ -75,12 +75,12 @@ def export_content(
     rewrite_result = None
     if rewritten_title or rewritten_content:
         rewrite_result = RewriteResult(
-            original_title=title,
-            original_content=content,
-            rewritten_title=rewritten_title or title,
-            rewritten_content=rewritten_content or content,
-            strategy="TOOL",
             success=True,
+            original_content=content,
+            rewritten_content=rewritten_content or content,
+            title=rewritten_title or title,
+            summary="",
+            metadata={"strategy": "TOOL"},
         )
     
     # Export
