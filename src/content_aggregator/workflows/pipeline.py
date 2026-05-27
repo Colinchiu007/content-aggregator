@@ -398,6 +398,7 @@ class ContentPipeline:
 
         for source_type, parse_fn in source_configs_map.items():
             entries = parse_fn(source_type)
+            print(f"[DEBUG] process_all: {source_type} -> {len(entries) if entries else 0} entries")
             if not entries:
                 continue
 
@@ -419,29 +420,10 @@ class ContentPipeline:
                     )
                     result: SourceResult = await collector.collect(**collect_kwargs)
                     logger.info(f'[process_source] {entry_name}: success={result.success}, collected={result.collected_count}, data_len={len(result.data) if result.data else 0}')
-                except Exception as e:
-                    logger.error(f'[process_source] {entry_name}: EXCEPTION {e}')
-                    result = SourceResult(success=False, data=[], error=str(e))
 
-                    source_results.append({
-                        "source_name": entry_name,
-                        "source_type": source_type,
-                        "success": result.success,
-                        "collected": result.collected_count,
-                        "skipped": result.skipped_count,
-                        "error": result.error,
-                        "duration": result.duration,
-                    })
-
-                    if not result.success:
-                        total_skipped += 1
-                        if result.error:
-                            print(f"  [SKIP] {entry_name}: {result.error}")
-                        continue
-
-                    # 转换为 Article
+                    # 采集成功，转换为 Article
                     source_article_count = 0
-                    for item_data in result.data:
+                    for item_data in (result.data or []):
                         if limit_per_source and source_article_count >= limit_per_source:
                             break
                         source_article_count += 1
@@ -452,6 +434,7 @@ class ContentPipeline:
                             title=item_data.get("title", ""),
                             content=item_data.get("content", ""),
                             source_type=source_type,
+                            source_id=entry_name,
                             url=item_data.get("url", ""),
                             author=item_data.get("author", ""),
                             published_at=item_data.get("published_at"),
@@ -527,6 +510,16 @@ class ContentPipeline:
                                 except Exception as e:
                                     logger.error(f"导出失败 ({fmt}): {e}")
 
+                    # 成功：追加到 source_results
+                    source_results.append({
+                        "source_name": entry_name,
+                        "source_type": source_type,
+                        "success": result.success,
+                        "collected": result.collected_count,
+                        "skipped": result.skipped_count,
+                        "error": result.error,
+                        "duration": result.duration,
+                    })
                     print(f"  [OK] {entry_name}: 采集 {result.collected_count} 篇")
 
                 except Exception as e:
@@ -683,17 +676,15 @@ class ContentPipeline:
                     "error": result.error,
                 })
 
-                logger.info(f'[process_source] DEBUG: checking result.success={result.success}, result.data type={type(result.data)}, len={len(result.data) if result.data else 0}')
                 if result.success and result.data:
                     # result.data 是 dict 列表，需要转为 Content 对象
                     from content_aggregator.models import Content
                     contents = []
-                    logger.info(f'[process_source] DEBUG: entering content conversion loop, data={result.data[:2] if len(result.data) > 2 else result.data}')
                     for d in (result.data[:limit_per_source] if limit_per_source else result.data):
                         content = Content(
                             id=d.get("id", str(uuid.uuid4())),
-                            source_id=d.get("source", "youtube"),
-                            source_type=d.get("source", "youtube"),
+                            source_id=source_type,
+                            source_type=source_type,
                             url=d.get("url", ""),
                             title=d.get("title", ""),
                             content=d.get("content", ""),
@@ -702,15 +693,9 @@ class ContentPipeline:
                             summary=d.get("summary", ""),
                             metadata=d.get("metadata", {}),
                         )
-                        
-                        # === 过滤步骤 ===
-                        should_block, reason = await self._apply_filters(content)
-                        if should_block:
-                            logger.info(f"[过滤] 跳过: {content.title[:40]} ({reason})")
-                            continue
-                        
                         contents.append(content)
                     
+                    # 过滤和改写由 process_contents 统一处理
                     articles = await self.process_contents(contents, rewrite=rewrite)
                     logger.info(f'[process_source] {entry_name}: {len(contents)} contents -> {len(articles)} articles')
                     all_articles.extend(articles)
