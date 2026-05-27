@@ -13,6 +13,8 @@ specs/
 ├── 01-rewrite-processor.md ← 改写处理器详细规格
 ├── 02-pipeline.md       ← Pipeline 编排器规格
 ├── 03-web-api.md        ← Web API 规格
+├── 04-export-formats.md ← 导出格式详细规格
+├── 05-seo-processor.md ← SEO 处理器规格
 └── DIFF-CHECK.md        ← 差异检查清单
 ```
 
@@ -87,8 +89,8 @@ specs/
 |--------|------|------|
 | 🔴 高 | `10-youtube-source.md` | YouTube 采集详细规格 |
 | 🔴 高 | `10-twitter-source.md` | Twitter 采集详细规格 |
-| 🟡 中 | `04-export-formats.md` | 导出格式详细规格 |
-| 🟡 中 | `05-seo-processor.md` | SEO 处理器规格 |
+| 🟢 低 | `04-export-formats.md` | 导出格式详细规格 ✅ 已完成 |
+| 🟢 低 | `05-seo-processor.md` | SEO 处理器规格 ✅ 已完成 |
 | 🟢 低 | `06-scheduler.md` | 定时调度规格 |
 | 🟢 低 | `07-storage.md` | 存储层规格 |
 
@@ -102,11 +104,11 @@ specs/
 | RewriteProcessor | ✅ 已覆盖 | `01-rewrite-processor.md` |
 | ContentAPI | ✅ 已覆盖 | `02-pipeline.md` §7 |
 | Web API | ✅ 已覆盖 | `03-web-api.md` |
+| Exporter | ✅ 已覆盖 | `04-export-formats.md` |
+| SEO Processor | ✅ 已覆盖 | `05-seo-processor.md` |
 | RSS Collector | ⚠️ 部分 | 系统总览提及 |
 | YouTube Collector | ❌ 未覆盖 | 待补充 |
 | Twitter Collector | ❌ 未覆盖 | 待补充 |
-| SEO Processor | ❌ 未覆盖 | 待补充 |
-| Exporter | ⚠️ 部分 | 系统总览提及 |
 
 ---
 
