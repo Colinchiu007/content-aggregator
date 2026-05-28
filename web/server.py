@@ -862,12 +862,20 @@ async def api_list_sources():
     result = {}
     for src_type, src_cfg in sources.items():
         if isinstance(src_cfg, list):
-            result[src_type] = [{"name": s.get("name", ""), "enabled": s.get("enabled", True)} for s in src_cfg]
+            result[src_type] = [
+                {"name": s.get("name", "") if isinstance(s, dict) else str(s),
+                 "enabled": s.get("enabled", True) if isinstance(s, dict) else True}
+                for s in src_cfg
+            ]
         elif isinstance(src_cfg, dict):
             entries = []
             for list_key in ["channels", "users", "accounts", "sites", "endpoints"]:
                 for s in src_cfg.get(list_key, []):
-                    entries.append({"name": s.get("name", ""), "enabled": s.get("enabled", True)})
+                    if isinstance(s, dict):
+                        entries.append({"name": s.get("name", ""), "enabled": s.get("enabled", True)})
+                    else:
+                        # Handle string items (e.g., youtube channel IDs, sitemap URLs)
+                        entries.append({"name": str(s), "enabled": True})
             result[src_type] = entries
     return JSONResponse(result)
 
@@ -999,15 +1007,24 @@ async def websocket_endpoint(ws: WebSocket):
 # 定时调度器
 # ========================================================================
 
-@app.on_event("startup")
-async def on_startup():
-    """服务器启动时初始化后台调度器"""
+async def _start_scheduler_bg():
+    """后台启动调度器（不阻塞 uvicorn startup）"""
     global bg_scheduler
     jobs = CONFIG.get("scheduler", {}).get("jobs", [])
     bg_scheduler = BackgroundScheduler(CONFIG, article_store, task_manager, broadcast_ws)
     bg_scheduler.load_jobs(jobs)
-    await bg_scheduler.start()
-    logger.info(f"定时调度器已启动，共 {len(jobs)} 个任务")
+    try:
+        await bg_scheduler.start()
+        logger.info(f"定时调度器已启动，共 {len(jobs)} 个任务")
+    except Exception as e:
+        logger.error(f"调度器启动失败: {e}")
+
+
+@app.on_event("startup")
+async def on_startup():
+    """服务器启动时初始化后台调度器（非阻塞）"""
+    # Fire-and-forget: 在后台任务中运行，不阻塞 uvicorn startup
+    asyncio.create_task(_start_scheduler_bg())
 
 
 @app.on_event("shutdown")
