@@ -128,12 +128,18 @@ class ContentPipeline:
         dedup_fuzzy = dedup_config_dict.get("fuzzy_dedup", True)
         dedup_min_length = dedup_config_dict.get("min_length", 50)
         
+        # 计算 cache_file 路径（相对于项目根目录的 data/dedup_cache.json）
+        import os
+        project_root = Path(__file__).resolve().parent.parent.parent.parent
+        cache_file = dedup_config_dict.get("cache_file", str(project_root / "data" / "dedup_cache.json"))
+        
         dedup_config = DedupFilterConfig(
             enabled=dedup_enabled,
             similarity_threshold=dedup_threshold,
             exact_dedup=dedup_exact,
             fuzzy_dedup=dedup_fuzzy,
-            min_length=dedup_min_length
+            min_length=dedup_min_length,
+            cache_file=cache_file
         )
         self.dedup_filter = DedupFilter(dedup_config)
         

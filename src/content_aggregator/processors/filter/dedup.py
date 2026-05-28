@@ -3,9 +3,14 @@
 """
 
 import hashlib
+import json
+import os
 import re
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
+
+from loguru import logger
 
 
 @dataclass
@@ -20,6 +25,8 @@ class DedupFilterConfig:
     fuzzy_dedup: bool = True
     # 最小内容长度（低于此值不进行模糊去重）
     min_length: int = 50
+    # 去重缓存文件路径（空字符串表示不持久化）
+    cache_file: str = ""
 
 
 class DedupFilter:
@@ -29,6 +36,12 @@ class DedupFilter:
         self.config = config
         self._seen_hashes: set[str] = set()
         self._seen_contents: list[dict] = []
+        self._pending_saves: int = 0
+        self._save_interval: int = 10  # 每积累 10 条保存一次
+
+        # 从缓存文件加载
+        self._cache_file = Path(self.config.cache_file) if self.config.cache_file else None
+        self._load_cache()
 
     def _normalize(self, text: str) -> str:
         """标准化文本用于比较"""
@@ -159,6 +172,11 @@ class DedupFilter:
             # 保留最近 100 条
             if len(self._seen_contents) > 100:
                 self._seen_contents = self._seen_contents[-100:]
+            
+            # 定期保存缓存（每积累 _save_interval 条保存一次）
+            self._pending_saves += 1
+            if self._pending_saves >= self._save_interval:
+                self._save_cache()
 
         return {
             "success": True,
@@ -214,7 +232,53 @@ class DedupFilter:
             "duplicate_count": len(duplicates)
         }
 
+    def _load_cache(self) -> None:
+        """从缓存文件加载去重数据"""
+        if not self._cache_file or not self._cache_file.exists():
+            return
+        try:
+            with open(self._cache_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                self._seen_hashes = set(data.get("hashes", []))
+                self._seen_contents = data.get("contents", [])
+            logger.info(f"[Dedup] 加载缓存: {len(self._seen_hashes)} 条 hash, {len(self._seen_contents)} 条内容")
+        except Exception as e:
+            logger.warning(f"[Dedup] 加载缓存失败: {e}")
+
+    def _save_cache(self) -> None:
+        """保存去重数据到缓存文件（内部方法）"""
+        if not self._cache_file:
+            return
+        try:
+            self._cache_file.parent.mkdir(parents=True, exist_ok=True)
+            data = {
+                "hashes": list(self._seen_hashes),
+                "contents": self._seen_contents[-100:]  # 只保存最近 100 条
+            }
+            with open(self._cache_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            logger.info(f"[Dedup] 保存缓存: {len(self._seen_hashes)} 条 hash")
+            self._pending_saves = 0
+        except Exception as e:
+            logger.warning(f"[Dedup] 保存缓存失败: {e}")
+
+    def save_cache(self) -> None:
+        """强制保存缓存（供外部调用）"""
+        self._save_cache()
+
     def reset(self) -> None:
         """重置去重状态"""
         self._seen_hashes.clear()
         self._seen_contents.clear()
+        self._pending_saves = 0
+        # 重置时也清空缓存文件
+        if self._cache_file and self._cache_file.exists():
+            try:
+                self._cache_file.unlink()
+                logger.info("[Dedup] 缓存文件已删除")
+            except Exception as e:
+                logger.warning(f"[Dedup] 删除缓存文件失败: {e}")
+
+    def shutdown(self) -> None:
+        """关闭时保存缓存"""
+        self._save_cache()
