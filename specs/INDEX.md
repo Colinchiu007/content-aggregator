@@ -15,6 +15,7 @@ specs/
 ├── 03-web-api.md        ← Web API 规格
 ├── 04-export-formats.md ← 导出格式详细规格
 ├── 05-seo-processor.md ← SEO 处理器规格
+├── 06-scheduler.md     ← 定时调度规格
 ├── 07-storage.md       ← 存储层规格
 ├── 10-youtube-source.md ← YouTube 数据源规格
 ├── 10-twitter-source.md ← Twitter 数据源规格
@@ -92,7 +93,7 @@ specs/
 |--------|------|------|
 | 🟢 低 | `04-export-formats.md` | 导出格式详细规格 ✅ 已完成 |
 | 🟢 低 | `05-seo-processor.md` | SEO 处理器规格 ✅ 已完成 |
-| 🟢 低 | `06-scheduler.md` | 定时调度规格 |
+| 🟢 低 | `06-scheduler.md` | 定时调度规格 ✅ 已完成 |
 | 🟢 低 | `07-storage.md` | 存储层规格 ✅ 已完成 |
 | ✅ | `10-youtube-source.md` | YouTube 采集详细规格 ✅ 已完成 |
 | ✅ | `10-twitter-source.md` | Twitter 采集详细规格 ✅ 已完成 |
