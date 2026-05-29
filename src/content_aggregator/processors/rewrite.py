@@ -215,20 +215,24 @@ class RewriteProcessor:
             rewrite_config = RewriteConfig()
 
         start_time = time.time()
+        logger.info(f"[RewriteProcessor.rewrite] START: {content.title[:60]}")
 
         try:
             prompt = self._build_prompt(content, rewrite_config)
+            logger.info(f"[RewriteProcessor.rewrite] Prompt built, calling LLM...")
             llm_response = await self._call_llm(prompt, rewrite_config)
+            logger.info(f"[RewriteProcessor.rewrite] LLM response received, parsing...")
             response_text = llm_response["content"]
             usage = llm_response.get("usage", {})
 
             result = self._parse_response(response_text, content, rewrite_config, usage)
             result.duration = time.time() - start_time
+            logger.info(f"[RewriteProcessor.rewrite] SUCCESS: {content.title[:60]} -> {len(result.rewritten_content)} chars")
 
             return result
 
         except Exception as e:
-            logger.error(f"Rewrite error: {e}")
+            logger.error(f"[RewriteProcessor.rewrite] ERROR: {content.title[:60]}: {e}", exc_info=True)
             return RewriteResult(
                 success=False,
                 original_content=content,
@@ -365,38 +369,45 @@ class RewriteProcessor:
             "temperature": 0.7
         }
         url = f"{base_url}/chat/completions"
+        logger.info(f"[_call_llm] START: provider={provider}, model={model}, url={url}")
+        logger.info(f"[_call_llm] Prompt length: {len(prompt)} chars")
 
         retry = self.llm_config.get("retry", 3)
         last_error = None
 
         for attempt in range(retry):
             try:
+                logger.info(f"[_call_llm] Attempt {attempt + 1}/{retry}: Sending request...")
                 response = await self.client.post(url, json=data, headers=headers)
+                logger.info(f"[_call_llm] Response received: status={response.status_code}")
 
                 if response.status_code == 200:
                     result = response.json()
                     usage = result.get("usage", {})
+                    content = result["choices"][0]["message"]["content"]
+                    logger.info(f"[_call_llm] SUCCESS: got {len(content)} chars, usage={usage}")
                     return {
-                        "content": result["choices"][0]["message"]["content"],
+                        "content": content,
                         "usage": usage
                     }
 
                 elif response.status_code == 429:
                     wait_time = 2 ** attempt
-                    logger.warning(f"Rate limited, waiting {wait_time}s")
+                    logger.warning(f"[_call_llm] Rate limited, waiting {wait_time}s")
                     await asyncio.sleep(wait_time)
                     continue
 
                 else:
                     error_msg = f"API error: {response.status_code} - {response.text}"
-                    logger.error(error_msg)
+                    logger.error(f"[_call_llm] ERROR: {error_msg}")
                     raise Exception(error_msg)
 
             except Exception as e:
                 last_error = e
-                logger.warning(f"LLM call attempt {attempt + 1} failed: {e}")
+                logger.warning(f"[_call_llm] Attempt {attempt + 1} failed: {e}")
                 await asyncio.sleep(1)
 
+        logger.error(f"[_call_llm] FAILED after {retry} attempts: {last_error}")
         raise Exception(f"LLM call failed after {retry} attempts: {last_error}")
 
     def _parse_response(
