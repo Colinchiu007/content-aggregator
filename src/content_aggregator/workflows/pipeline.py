@@ -20,7 +20,7 @@ import asyncio
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional
 
 from loguru import logger
 
@@ -335,7 +335,7 @@ class ContentPipeline:
         seo: bool = False,
         formats: list[str] | None = None,
         limit_per_source: int | None = None,
-        progress_callback: callable | None = None,
+        progress_callback: Optional[Callable] = None,
     ) -> dict[str, Any]:
         """
         批量采集 config.yaml 中所有已启用的数据源
@@ -631,6 +631,7 @@ class ContentPipeline:
         target_language: str | None = None,
         formats: list[str] | None = None,
         limit_per_source: int | None = None,
+        progress_callback: Optional[Callable] = None,
     ) -> dict[str, Any]:
         """
         采集单个数据源（用于 YouTube 等独立采集按钮）
