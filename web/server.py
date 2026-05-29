@@ -645,7 +645,7 @@ async def api_collect_url(
 @app.post("/api/rewrite")
 async def api_rewrite(article_id: str = Form(...), strategy: str = Form(default="REWRITE"),
                          translate: str = Form(default="no")):
-    """改写已有文章"""
+    """改写已有文章（带进度反馈）"""
     article = article_store.get_by_id(article_id)
     if not article:
         return JSONResponse({"success": False, "error": "文章不存在"})
@@ -654,7 +654,13 @@ async def api_rewrite(article_id: str = Form(...), strategy: str = Form(default=
 
     async def run_task():
         try:
-            task_manager.update(task_id, status="running", message="正在改写...")
+            # 进度回调：改写是单篇，用 0% → 50%（调用LLM）→ 100%（完成）
+            async def progress_callback(current, total, message, progress):
+                task_manager.update(task_id, status="running", progress=progress, message=message)
+                await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                            "status": "running", "message": message, "progress": progress})
+
+            task_manager.update(task_id, status="running", message="正在改写...", progress=0)
 
             from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
             async with RewriteProcessor(CONFIG) as processor:
@@ -678,7 +684,8 @@ async def api_rewrite(article_id: str = Form(...), strategy: str = Form(default=
                     strategy=cfg_strategy,
                     translate_to="zh" if translate == "yes" else None,
                 )
-                result = await processor.rewrite(content, config)
+                # 调用改写，并传递进度回调
+                result = await processor.rewrite(content, config, progress_callback=progress_callback)
 
                 if result.success:
                     original_text = article.get("content", "")

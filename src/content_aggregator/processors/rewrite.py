@@ -208,7 +208,8 @@ class RewriteProcessor:
     async def rewrite(
         self,
         content: Content,
-        rewrite_config: RewriteConfig | None = None
+        rewrite_config: RewriteConfig | None = None,
+        progress_callback: Callable | None = None
     ) -> RewriteResult:
         """改写单篇内容"""
         if rewrite_config is None:
@@ -218,9 +219,23 @@ class RewriteProcessor:
         logger.info(f"[RewriteProcessor.rewrite] START: {content.title[:60]}")
 
         try:
+            # 报告进度：开始构建提示词
+            if progress_callback:
+                await progress_callback(0, 1, "正在构建提示词...", 5)
+
             prompt = self._build_prompt(content, rewrite_config)
+            
+            # 报告进度：开始调用 LLM（最耗时的步骤）
+            if progress_callback:
+                await progress_callback(0, 1, "正在调用 LLM 改写...", 10)
+            
             logger.info(f"[RewriteProcessor.rewrite] Prompt built, calling LLM...")
             llm_response = await self._call_llm(prompt, rewrite_config)
+            
+            # 报告进度：LLM 响应已收到，正在解析
+            if progress_callback:
+                await progress_callback(0, 1, "LLM 响应已收到，正在解析...", 60)
+            
             logger.info(f"[RewriteProcessor.rewrite] LLM response received, parsing...")
             response_text = llm_response["content"]
             usage = llm_response.get("usage", {})
@@ -228,6 +243,10 @@ class RewriteProcessor:
             result = self._parse_response(response_text, content, rewrite_config, usage)
             result.duration = time.time() - start_time
             logger.info(f"[RewriteProcessor.rewrite] SUCCESS: {content.title[:60]} -> {len(result.rewritten_content)} chars")
+
+            # 报告进度：完成
+            if progress_callback:
+                await progress_callback(0, 1, "改写完成", 100)
 
             return result
 
@@ -243,7 +262,8 @@ class RewriteProcessor:
     async def rewrite_batch(
         self,
         contents: list[Content],
-        rewrite_config: RewriteConfig | None = None
+        rewrite_config: RewriteConfig | None = None,
+        progress_callback: Callable | None = None
     ) -> list[RewriteResult]:
         """批量改写内容（带并发控制）"""
         if rewrite_config is None:
@@ -251,12 +271,28 @@ class RewriteProcessor:
 
         results = []
         semaphore = asyncio.Semaphore(3)
+        completed = 0
+        total = len(contents)
 
-        async def rewrite_with_limit(content: Content) -> RewriteResult:
+        async def rewrite_with_limit(content: Content, index: int) -> RewriteResult:
+            nonlocal completed
             async with semaphore:
-                return await self.rewrite(content, rewrite_config)
+                # 报告进度（开始改写当前文章）
+                if progress_callback:
+                    progress = int(completed / total * 100) if total > 0 else 0
+                    await progress_callback(completed, total, f"正在改写: {content.title[:30]}", progress)
+                
+                result = await self.rewrite(content, rewrite_config, progress_callback=None)  # 不传递回调，避免冲突
+                
+                completed += 1
+                # 报告进度（完成当前文章）
+                if progress_callback:
+                    progress = int(completed / total * 100) if total > 0 else 100
+                    await progress_callback(completed, total, f"完成改写: {content.title[:30]}", progress)
+                
+                return result
 
-        tasks = [rewrite_with_limit(content) for content in contents]
+        tasks = [rewrite_with_limit(content, i) for i, content in enumerate(contents)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         processed_results = []
