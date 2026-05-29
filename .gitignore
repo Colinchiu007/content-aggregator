@@ -18,4 +18,4 @@ output/
 .env
 
 # Config with secrets
-config/config.yaml
+config/config.yamldata/dedup_cache.json
