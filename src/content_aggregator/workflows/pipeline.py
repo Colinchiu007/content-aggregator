@@ -870,7 +870,7 @@ class ContentPipeline:
                 # 改写
                 if rewrite and self.rewrite_processor:
                     logger.info(f"[process_contents] Rewriting: {content.title[:60]}")
-                    rewrite_result = await self.rewrite_processor.rewrite(content)
+                    rewrite_result = await self.rewrite_processor.rewrite(content, progress_callback=progress_callback)
                     rewritten_text = rewrite_result.rewritten_content if rewrite_result.success else ""
                     # 如果改写结果为空，则使用原文内容（避免短描述改写后无内容）
                     final_content = rewritten_text if rewritten_text else content.content
