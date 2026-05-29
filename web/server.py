@@ -861,6 +861,28 @@ async def api_clear_articles():
     return JSONResponse({"success": True})
 
 
+@app.post("/api/cache/clear")
+async def api_clear_cache():
+    """清除去重缓存（内存+文件）"""
+    try:
+        # 调用 DedupFilter.reset() 方法
+        if pipeline and hasattr(pipeline, 'dedup_filter'):
+            pipeline.dedup_filter.reset()
+            logger.info("[Cache] 去重缓存已清除（调用 reset() 方法）")
+        else:
+            # 备用方案：直接删除文件
+            import os
+            cache_file = "data/dedup_cache.json"
+            if os.path.exists(cache_file):
+                os.remove(cache_file)
+                logger.info("[Cache] 缓存文件已删除（备用方案）")
+        
+        return JSONResponse({"success": True, "message": "去重缓存已清除"})
+    except Exception as e:
+        logger.error(f"[Cache] 清除缓存失败: {e}")
+        return JSONResponse({"success": False, "error": str(e)})
+
+
 @app.get("/api/tasks/{task_id}")
 async def api_get_task(task_id: str):
     """查询任务状态"""
