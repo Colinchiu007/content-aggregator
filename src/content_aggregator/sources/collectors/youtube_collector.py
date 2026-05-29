@@ -29,7 +29,9 @@ def _get_transcript_api():
             from youtube_transcript_api import YouTubeTranscriptApi
             _transcript_api = YouTubeTranscriptApi
         except ImportError:
-            logger.warning("[YouTube] 未安装 youtube-transcript-api，字幕提取不可用")
+            # 使用 logging 直接调用，避免依赖模块级 logger 变量
+            _logger = logging.getLogger(__name__)
+            _logger.warning("[YouTube] 未安装 youtube-transcript-api，字幕提取不可用")
             _transcript_api = False
     return _transcript_api
 
