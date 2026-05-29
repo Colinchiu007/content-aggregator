@@ -335,6 +335,7 @@ class ContentPipeline:
         seo: bool = False,
         formats: list[str] | None = None,
         limit_per_source: int | None = None,
+        progress_callback: callable | None = None,
     ) -> dict[str, Any]:
         """
         批量采集 config.yaml 中所有已启用的数据源
@@ -402,6 +403,15 @@ class ContentPipeline:
             "api": self._parse_single_config,
         }
 
+        # 计算总源数（用于进度计算）
+        total_sources = 0
+        for source_type, parse_fn in source_configs_map.items():
+            entries = parse_fn(source_type)
+            if entries:
+                total_sources += len(entries)
+
+        current_source = 0
+
         for source_type, parse_fn in source_configs_map.items():
             entries = parse_fn(source_type)
             print(f"[DEBUG] process_all: {source_type} -> {len(entries) if entries else 0} entries")
@@ -409,6 +419,15 @@ class ContentPipeline:
                 continue
 
             for entry in entries:
+                current_source += 1
+                entry_name = entry.get("name", source_type)
+                
+                # 报告进度
+                if progress_callback:
+                    progress = int((current_source - 1) / total_sources * 100) if total_sources > 0 else 0
+                    await progress_callback(current_source - 1, total_sources, f"正在采集: {entry_name}", progress)
+                
+                logger.info(f"[Pipeline] 采集源: {entry_name} ({source_type})")
                 entry_name = entry.get("name", source_type)
                 logger.info(f"[Pipeline] 采集源: {entry_name} ({source_type})")
 
@@ -527,6 +546,11 @@ class ContentPipeline:
                         "duration": result.duration,
                     })
                     print(f"  [OK] {entry_name}: 采集 {result.collected_count} 篇")
+                    
+                    # 报告进度（完成当前源）
+                    if progress_callback:
+                        progress = int(current_source / total_sources * 100) if total_sources > 0 else 100
+                        await progress_callback(current_source, total_sources, f"完成采集: {entry_name}", progress)
 
                 except Exception as e:
                     total_skipped += 1
@@ -542,6 +566,11 @@ class ContentPipeline:
                         "error": error_msg,
                         "duration": 0,
                     })
+                    
+                    # 报告进度（跳过当前源）
+                    if progress_callback:
+                        progress = int(current_source / total_sources * 100) if total_sources > 0 else 100
+                        await progress_callback(current_source, total_sources, f"跳过: {entry_name}", progress)
 
         elapsed = time.time() - start
         success_sources = sum(1 for r in source_results if r["success"])
@@ -658,8 +687,18 @@ class ContentPipeline:
         if not entries:
             return {"articles": [], "summary": {"total_sources": 0, "success": 0, "total_articles": 0, "message": f"未配置 {source_type} 源"}}
 
+        total_entries = len(entries)
+        current_entry = 0
+
         for entry in entries:
+            current_entry += 1
             entry_name = entry.get("name", source_type)
+            
+            # 报告进度
+            if progress_callback:
+                progress = int((current_entry - 1) / total_entries * 100) if total_entries > 0 else 0
+                await progress_callback(current_entry - 1, total_entries, f"正在采集: {entry_name}", progress)
+            
             try:
                 collector = get_collector(
                     source_type,
@@ -681,7 +720,12 @@ class ContentPipeline:
                     "collected": result.collected_count,
                     "error": result.error,
                 })
-
+                
+                # 报告进度（完成当前条目）
+                if progress_callback:
+                    progress = int(current_entry / total_entries * 100) if total_entries > 0 else 100
+                    await progress_callback(current_entry, total_entries, f"完成采集: {entry_name}", progress)
+                
                 if result.success and result.data:
                     # result.data 是 dict 列表，需要转为 Content 对象
                     from content_aggregator.models import Content
@@ -709,6 +753,11 @@ class ContentPipeline:
             except Exception as e:
                 logger.error(f"采集失败 [{entry_name}]: {e}")
                 source_results.append({"source_name": entry_name, "success": False, "error": str(e)})
+                
+                # 报告进度（跳过当前条目）
+                if progress_callback:
+                    progress = int(current_entry / total_entries * 100) if total_entries > 0 else 100
+                    await progress_callback(current_entry, total_entries, f"跳过: {entry_name}", progress)
 
         elapsed = time.time() - start
         success_sources = sum(1 for r in source_results if r.get("success"))

@@ -9,11 +9,11 @@
 
 {% if tasks %}
 {% for task in tasks %}
-<div class="task-status" id="task-{{ task.id }}">
+<div class="task-status" id="task-{{ task.id }}" data-task-id="{{ task.id }}">
     <span class="task-dot {{ task.status }}"></span>
     <div style="flex:1">
         <div style="font-weight:500">{{ task.description or task.type }}</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:2px">
+        <div style="font-size:12px;color:var(--text-muted);margin-top:2px" class="task-message">
             {{ task.message or '等待中...' }}
             {% if task.started_at %}
             · 开始于 {{ formatTime(task.started_at) }}
@@ -22,8 +22,15 @@
             · 完成于 {{ formatTime(task.finished_at) }}
             {% endif %}
         </div>
+        <!-- 进度条 -->
+        {% if task.status == 'running' %}
+        <div style="margin-top:8px;background:var(--bg);border-radius:4px;overflow:hidden;height:6px;">
+            <div class="task-progress-bar" style="width:{{ task.progress or 0 }}%;height:100%;background:var(--primary);transition:width 0.3s"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px" class="task-progress-text">{{ task.progress or 0 }}%</div>
+        {% endif %}
     </div>
-    <span class="badge badge-{{ 'success' if task.status == 'done' else 'danger' if task.status == 'error' else 'primary' if task.status == 'running' else 'muted' }}">
+    <span class="badge task-status-badge badge-{{ 'success' if task.status == 'done' else 'danger' if task.status == 'error' else 'primary' if task.status == 'running' else 'muted' }}">
         {{ {'pending': '等待中', 'running': '运行中', 'done': '完成', 'error': '失败'}.get(task.status, task.status) }}
     </span>
 </div>
@@ -62,16 +69,56 @@
 
 {% block extra_js %}
 <script>
-    function onTaskUpdate(msg) {
-        const el = document.getElementById('task-' + msg.task_id);
-        if (el) {
-            const dot = el.querySelector('.task-dot');
-            dot.className = 'task-dot ' + msg.status;
-            const msgDiv = el.querySelector('div > div:last-child');
-            if (msgDiv) msgDiv.textContent = msg.message;
+    // 注册任务更新处理器
+    registerTaskUpdateHandler((data) => {
+        const el = document.getElementById('task-' + data.task_id);
+        if (!el) {
+            // 如果任务元素不存在（新任务），刷新页面
+            location.reload();
+            return;
         }
-        if (msg.status === 'done') showToast(msg.message, 'success');
-        if (msg.status === 'error') showToast(msg.message, 'error');
-    }
+
+        // 更新状态点
+        const dot = el.querySelector('.task-dot');
+        if (dot) dot.className = 'task-dot ' + data.status;
+
+        // 更新消息
+        const msgDiv = el.querySelector('.task-message');
+        if (msgDiv && data.message) msgDiv.textContent = data.message;
+
+        // 更新进度条
+        const progressBar = el.querySelector('.task-progress-bar');
+        const progressText = el.querySelector('.task-progress-text');
+        if (data.status === 'running') {
+            // 显示进度条（如果不存在则创建）
+            if (!progressBar) {
+                const container = el.querySelector('div[style*="flex:1"]');
+                if (container) {
+                    const barHtml = `
+                        <div style="margin-top:8px;background:var(--bg);border-radius:4px;overflow:hidden;height:6px;">
+                            <div class="task-progress-bar" style="width:${data.progress || 0}%;height:100%;background:var(--primary);transition:width 0.3s"></div>
+                        </div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:2px" class="task-progress-text">${data.progress || 0}%</div>
+                    `;
+                    container.insertAdjacentHTML('beforeend', barHtml);
+                }
+            } else {
+                progressBar.style.width = `${data.progress || 0}%`;
+                if (progressText) progressText.textContent = `${data.progress || 0}%`;
+            }
+        }
+
+        // 更新状态徽章
+        const badge = el.querySelector('.task-status-badge');
+        if (badge) {
+            badge.className = `badge task-status-badge badge-${getStatusBadgeClass(data.status)}`;
+            badge.textContent = getStatusText(data.status);
+        }
+
+        // 完成后刷新页面（显示结果链接）
+        if (data.status === 'done' || data.status === 'error') {
+            setTimeout(() => location.reload(), 1500);
+        }
+    });
 </script>
 {% endblock %}

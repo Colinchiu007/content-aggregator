@@ -462,6 +462,12 @@ async def api_collect_all(
     fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
 
     async def run_task():
+        async def progress_callback(current, total, message, progress):
+            """进度回调函数：更新任务状态并广播 WebSocket 消息"""
+            task_manager.update(task_id, status="running", progress=progress, message=message)
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                        "status": "running", "message": message, "progress": progress})
+
         try:
             task_manager.update(task_id, status="running", message="正在初始化流水线...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
@@ -474,6 +480,7 @@ async def api_collect_all(
                     target_language=translate,
                     formats=fmt_list,
                     limit_per_source=limit,
+                    progress_callback=progress_callback,  # 传递进度回调
                 )
 
                 # 存入 ArticleStore
@@ -520,6 +527,12 @@ async def api_collect_youtube(
     fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
 
     async def run_task():
+        # YouTube 采集的进度回调（单源，进度 0-100）
+        async def progress_callback(current, total, message, progress):
+            task_manager.update(task_id, status="running", progress=progress, message=message)
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                        "status": "running", "message": message, "progress": progress})
+
         try:
             task_manager.update(task_id, status="running", message="正在采集 YouTube...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
@@ -533,6 +546,7 @@ async def api_collect_youtube(
                     target_language=translate,
                     formats=fmt_list,
                     limit_per_source=limit,
+                    progress_callback=progress_callback,  # 传递进度回调
                 )
 
                 articles_objs = result.get("articles", [])

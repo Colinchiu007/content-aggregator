@@ -55,6 +55,53 @@ python scripts/run.py --url "..." --no-rewrite --format html
 
 ---
 
+## Web UI（可选）
+
+项目内置 Web 管理界面，支持可视化操作：
+
+### 启动 Web UI
+```bash
+# 方式一：直接启动（开发）
+python -m uvicorn web.server:app --host 127.0.0.1 --port 8000 --reload
+
+# 方式二：通过脚本启动
+python scripts/web.py
+```
+
+浏览器访问：`http://127.0.0.1:8000`
+
+### 功能页面
+
+| 页面 | 路径 | 功能 |
+|------|------|------|
+| 文章列表 | `/articles` | 查看/搜索/删除已采集文章 |
+| 文章详情 | `/articles/{id}` | 查看文章完整内容 |
+| 内容改写 | `/compose` | 手动输入内容并 AI 改写 |
+| 数据源管理 | `/sources` | 管理 RSS/YouTube 等数据源 |
+| 定时任务 | `/scheduler` | 创建/编辑/启停定时采集任务 |
+| 任务管理 | `/tasks` | 查看异步任务进度和历史 |
+| 系统设置 | `/settings` | 修改 LLM 配置等参数 |
+
+### Web API（异步任务模式）
+
+所有耗时操作（采集/改写）均为**异步任务**，提交后返回 `task_id`，前端轮询获取结果：
+
+```bash
+# 1. 提交采集任务
+curl -X POST "http://127.0.0.1:8000/api/collect/url" \
+
+  -d "url=https://sspai.com/feed&source_type=rss&rewrite=true"
+# 返回: {"task_id": "task_xxx", "status": "started"}
+
+# 2. 轮询任务状态
+curl "http://127.0.0.1:8000/api/tasks/task_xxx"
+# 返回: {"status": "done", "progress": 100, ...}
+```
+
+> 📖 完整 API 文档见 `docs/API.md`
+
+---
+
 ## 快速开始
 
 ### 1. 安装依赖
@@ -82,7 +129,12 @@ export:
 
 ### 3. 运行
 ```bash
+# CLI 模式（单次采集）
 python scripts/run.py --url "https://feeds.feedburner.com/ruanyifeng" --format markdown
+
+# Web UI 模式（可视化操作）
+python -m uvicorn web.server:app --host 127.0.0.1 --port 8000
+# 然后访问 http://127.0.0.1:8000
 ```
 
 ---

@@ -67,9 +67,9 @@
         </div>
         <div id="live-tasks">
             {% for task in tasks %}
-            <div class="task-status" id="task-{{ task.id }}">
+            <div class="task-status" id="task-{{ task.id }}" data-recent-task-id="{{ task.id }}">
                 <span class="task-dot {{ task.status }}"></span>
-                <span>{{ task.description or task.type }}</span>
+                <span class="task-status-text">{{ task.description or task.type }}</span>
                 <span style="margin-left:auto;color:var(--text-muted);font-size:12px">
                     {{ task.message[:50] }}
                 </span>
@@ -149,18 +149,38 @@
 
 {% block extra_js %}
 <script>
-    // WebSocket 任务更新
-    function onTaskUpdate(msg) {
-        const el = document.getElementById('task-' + msg.task_id);
-        if (el) {
-            const dot = el.querySelector('.task-dot');
-            dot.className = 'task-dot ' + msg.status;
-            const msgEl = el.querySelector('span:last-child');
-            msgEl.textContent = msg.message.slice(0, 50);
+    // 注册任务更新处理器（最近任务列表）
+    registerTaskUpdateHandler((data) => {
+        const el = document.getElementById('task-' + data.task_id);
+        if (!el) {
+            // 如果任务元素不存在（新任务），添加到列表顶部
+            const container = document.getElementById('live-tasks');
+            if (container) {
+                const newTaskHtml = `
+                    <div class="task-status" id="task-${data.task_id}" data-recent-task-id="${data.task_id}">
+                        <span class="task-dot ${data.status}"></span>
+                        <span class="task-status-text">${data.message || '新任务'}</span>
+                        <span style="margin-left:auto;color:var(--text-muted);font-size:12px">
+                            ${data.message ? data.message.slice(0, 50) : ''}
+                        </span>
+                    </div>
+                `;
+                container.insertAdjacentHTML('afterbegin', newTaskHtml);
+                // 移除"暂无任务记录"提示
+                const emptyEl = container.querySelector('.empty');
+                if (emptyEl) emptyEl.remove();
+            }
+            return;
         }
-        if (msg.status === 'done') showToast(msg.message, 'success');
-        if (msg.status === 'error') showToast(msg.message, 'error');
-    }
+
+        // 更新状态点
+        const dot = el.querySelector('.task-dot');
+        if (dot) dot.className = 'task-dot ' + data.status;
+
+        // 更新消息
+        const msgEl = el.querySelector('.task-status-text');
+        if (msgEl && data.message) msgEl.textContent = data.message.slice(0, 50);
+    });
 
     // 全源采集
     async function startCollectAll() {
@@ -173,7 +193,7 @@
         const data = await apiPost('/api/collect/all', fd);
         if (data.task_id) {
             showToast('采集任务已启动', 'info');
-            setTimeout(() => location.reload(), 1000);
+            // 不立即刷新，等待 WebSocket 更新
         }
     }
 
@@ -186,7 +206,6 @@
         const data = await apiPost('/api/collect/youtube', fd);
         if (data.task_id) {
             showToast('YouTube 采集任务已启动', 'info');
-            setTimeout(() => location.reload(), 1500);
         }
     }
 
@@ -198,7 +217,6 @@
         const data = await apiPost('/api/collect/url', fd);
         if (data.task_id) {
             showToast('采集任务已启动', 'info');
-            setTimeout(() => location.reload(), 1000);
         }
     }
 </script>

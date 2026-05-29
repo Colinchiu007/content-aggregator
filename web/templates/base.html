@@ -475,6 +475,148 @@
             const resp = await fetch(url, { method: 'DELETE' });
             return resp.json();
         }
+
+        // ========================================================================
+        // WebSocket 实时任务进度
+        // ========================================================================
+
+        let ws = null;
+        let wsReconnectDelay = 1000;
+        const WS_MAX_RECONNECT_DELAY = 30000;
+
+        // 任务更新处理器注册表（页面可以注册自定义处理器）
+        const taskUpdateHandlers = [];
+
+        function registerTaskUpdateHandler(handler) {
+            taskUpdateHandlers.push(handler);
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('[WS] 已连接');
+                wsReconnectDelay = 1000;  // 重置重连延迟
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('[WS] 收到消息:', data);
+
+                    // 处理任务更新消息
+                    if (data.type === 'task_update') {
+                        handleTaskUpdate(data);
+                    }
+                } catch (e) {
+                    console.error('[WS] 解析消息失败:', e);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('[WS] 连接关闭，尝试重连...');
+                setTimeout(connectWebSocket, wsReconnectDelay);
+                wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_MAX_RECONNECT_DELAY);
+            };
+
+            ws.onerror = (error) => {
+                console.error('[WS] 错误:', error);
+            };
+        }
+
+        function handleTaskUpdate(data) {
+            const { task_id, status, message, progress } = data;
+
+            // 显示 Toast 通知
+            if (status === 'running') {
+                showToast(`⏳ 任务开始: ${message}`, 'info');
+            } else if (status === 'done') {
+                showToast(`✅ 任务完成: ${message}`, 'success');
+            } else if (status === 'error') {
+                showToast(`❌ 任务失败: ${message}`, 'error');
+            }
+
+            // 调用所有注册的处理器
+            taskUpdateHandlers.forEach(handler => {
+                try {
+                    handler(data);
+                } catch (e) {
+                    console.error('[WS] 处理器错误:', e);
+                }
+            });
+
+            // 更新页面上的任务状态（通用逻辑）
+            updateTaskUI(task_id, status, message, progress);
+        }
+
+        function updateTaskUI(taskId, status, message, progress) {
+            // 更新任务列表页面（/tasks）
+            const taskElement = document.querySelector(`[data-task-id="${taskId}"]`);
+            if (taskElement) {
+                const statusBadge = taskElement.querySelector('.task-status-badge');
+                const messageEl = taskElement.querySelector('.task-message');
+                const progressBar = taskElement.querySelector('.task-progress-bar');
+                const progressText = taskElement.querySelector('.task-progress-text');
+
+                if (statusBadge) {
+                    statusBadge.className = `badge task-status-badge badge-${getStatusBadgeClass(status)}`;
+                    statusBadge.textContent = getStatusText(status);
+                }
+                if (messageEl) messageEl.textContent = message || '';
+                if (progressBar && progress !== undefined) {
+                    progressBar.style.width = `${progress}%`;
+                }
+                if (progressText && progress !== undefined) {
+                    progressText.textContent = `${progress}%`;
+                }
+            }
+
+            // 更新仪表盘页面（/）的最近任务
+            const recentTaskEl = document.querySelector(`[data-recent-task-id="${taskId}"]`);
+            if (recentTaskEl) {
+                const statusDot = recentTaskEl.querySelector('.task-dot');
+                const statusText = recentTaskEl.querySelector('.task-status-text');
+                if (statusDot) {
+                    statusDot.className = `task-dot ${status}`;
+                }
+                if (statusText) statusText.textContent = getStatusText(status);
+            }
+        }
+
+        function getStatusBadgeClass(status) {
+            const map = {
+                'pending': 'warning',
+                'running': 'primary',
+                'done': 'success',
+                'error': 'danger'
+            };
+            return map[status] || 'muted';
+        }
+
+        function getStatusText(status) {
+            const map = {
+                'pending': '等待中',
+                'running': '进行中',
+                'done': '已完成',
+                'error': '失败'
+            };
+            return map[status] || status;
+        }
+
+        // 页面加载时连接 WebSocket
+        document.addEventListener('DOMContentLoaded', () => {
+            connectWebSocket();
+
+            // 定时发送心跳（保持连接）
+            setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send('ping');
+                }
+            }, 30000);
+        });
     </script>
     {% block extra_js %}{% endblock %}
 </body>
