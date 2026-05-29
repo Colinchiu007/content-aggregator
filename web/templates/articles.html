@@ -102,11 +102,30 @@
 
     async function clearArticles() {
         if (!confirm('确定清空所有文章？此操作不可恢复。')) return;
+        
+        // 1. 清空文章
         const resp = await fetch('/api/articles/clear', { method: 'POST' });
         const data = await resp.json();
+        
         if (data.success) {
-            showToast('已清空', 'success');
-            setTimeout(() => location.reload(), 500);
+            showToast('已清空文章，正在清除去重缓存...', 'success');
+            
+            // 2. 自动清除去重缓存（防止下次采集时全部被去重拦截）
+            try {
+                const cacheResp = await fetch('/api/cache/clear', { method: 'POST' });
+                const cacheData = await cacheResp.json();
+                if (cacheData.success) {
+                    showToast('✅ 文章已清空，去重缓存已清除', 'success');
+                } else {
+                    showToast('⚠️ 文章已清空，但清除缓存失败', 'error');
+                }
+            } catch (e) {
+                showToast('⚠️ 文章已清空，但清除缓存失败: ' + e.message, 'error');
+            }
+            
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast('清空失败: ' + (data.error || '未知错误'), 'error');
         }
     }
 </script>
