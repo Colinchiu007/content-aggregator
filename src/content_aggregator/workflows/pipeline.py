@@ -8,7 +8,7 @@
     article = await pipeline.process_url("https://example.com/rss.xml")
     
     # 处理内容列表
-    articles = await pipeline.process_contents(contents)
+    articles = await pipeline.process_contents(contents, progress_callback=my_callback)
     
     # 导出
     from content_aggregator.exporters import Exporter
@@ -747,7 +747,7 @@ class ContentPipeline:
                         contents.append(content)
                     
                     # 过滤和改写由 process_contents 统一处理
-                    articles = await self.process_contents(contents, rewrite=rewrite)
+                    articles = await self.process_contents(contents, rewrite=rewrite, progress_callback=progress_callback)
                     logger.info(f'[process_source] {entry_name}: {len(contents)} contents -> {len(articles)} articles')
                     all_articles.extend(articles)
 
@@ -837,21 +837,30 @@ class ContentPipeline:
 
         return []
 
-    async def process_contents(self, contents: list[Content], rewrite: bool = True) -> list[Article]:
+    async def process_contents(self, contents: list[Content], rewrite: bool = True, progress_callback: Optional[Callable] = None) -> list[Article]:
         """
         处理内容列表
 
         参数：
             contents: Content 对象列表
             rewrite: 是否进行改写
+            progress_callback: 进度回调函数
 
         返回：
             Article 对象列表
         """
         articles = []
+        total = len(contents)
+        current = 0
 
         for content in contents:
+            current += 1
             try:
+                # 报告进度（开始处理当前文章）
+                if progress_callback:
+                    progress = int((current - 1) / total * 100) if total > 0 else 0
+                    await progress_callback(current - 1, total, f"正在改写: {content.title[:30]}", progress)
+
                 # === 过滤步骤 ===
                 should_block, reason = await self._apply_filters(content)
                 if should_block:
@@ -884,6 +893,12 @@ class ContentPipeline:
                     )
                     articles.append(article)
                     logger.info(f"[process_contents] Done: {content.title[:60]} -> {len(final_content)} chars")
+
+                    # 报告进度（完成当前文章）
+                    if progress_callback:
+                        progress = int(current / total * 100) if total > 0 else 100
+                        await progress_callback(current, total, f"完成改写: {content.title[:30]}", progress)
+
                 else:
                     article = Article.from_content(content)
                     articles.append(article)
