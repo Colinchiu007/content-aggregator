@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 from content_aggregator.exporters.markdown import to_markdown
 from content_aggregator.exporters.html import to_html
 from content_aggregator.exporters.json import to_json, to_json_compact

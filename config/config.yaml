@@ -1,0 +1,131 @@
+llm:
+  provider: deepseek
+  model: deepseek-chat
+  api_key: sk-ebc59537890a49b3a86aabef1ba1b8c7
+  base_url: https://api.deepseek.com
+  max_tokens: 2000
+  temperature: 0.7
+  timeout: 120
+  retry: 3
+  max_concurrency: 3
+http:
+  timeout: 30
+  max_retries: 3
+  proxy: ""
+  proxy_fallback: skip
+database:
+  path: ./data/content.db
+export:
+  output_dir: ./output/exports
+  default_format: markdown
+  filename_template: '{title}_{date}.{ext}'
+sources:
+  rss:
+  - name: 阮一峰网络日志
+    url: http://feeds.feedburner.com/ruanyifeng
+    enabled: false
+  - name: 科技爱好者周刊
+    url: https://github.com/ruanyf/weekly/commits.atom
+    enabled: false
+  - name: 36氪
+    url: https://rss.aishort.top/?type=36kr
+    enabled: false
+  - name: OpenAI
+    url: https://openai.com/news/rss.xml
+    enabled: false
+  - name: Google Deepmind
+    url: https://deepmind.google/blog/rss.xml
+    enabled: false
+  - name: 少数派
+    url: https://sspai.com/feed
+    enabled: true
+  youtube:
+    api_key: AIzaSyDSPReSDrzCFuQZIea0IKNGZENc_X5vW5A
+    channels:
+    - UCtR5okwgTMghi_uyWvbloEg
+    search_queries:
+    - AI
+    search_order: relevance
+    search_limit: 10
+  twitter:
+    bearer_token: null
+    users: []
+    queries: []
+  tiktok:
+    session_id: null
+    users: []
+  douyin:
+    cookie: null
+    client_key: null
+    users: []
+  xiaohongshu:
+    cookie: null
+    xhs_token: null
+    users: []
+    keywords: []
+  wechat:
+    api_key: null
+    accounts: []
+  sitemap:
+    sites: []
+  api:
+    endpoints: []
+  zhihu:
+    cookie: null
+    urls: []
+rewrite:
+  strategy: PARAPHRASE
+  prompt_template: '请将以下文章进行改写，要求：
+
+    1. 保持原文核心观点不变
+
+    2. 语言风格更加生动、通俗易懂
+
+    3. 适当加入个人见解
+
+    4. 删除广告和无关内容
+
+
+    原文：
+
+    {content}
+
+
+    请直接输出改写后的文章，不要添加任何说明。
+
+    '
+formatter:
+  markdown:
+    include_metadata: true
+    metadata_fields:
+    - title
+    - author
+    - source
+    - date
+    - tags
+  html:
+    use_inline_styles: true
+    font_size: 17
+    line_height: 1.75
+    font_family: Helvetica Neue, Helvetica, Arial, sans-serif
+translation:
+  enabled: false
+  default_language: EN
+  tone: casual
+  preserve_formatting: true
+scheduler:
+  enabled: false
+  jobs:
+  - id: 047ddcde-aefb-4337-9443-8bcefa1ee63b
+    name: debug-rss-test
+    type: interval
+    interval_hours: 24
+    cron: 0 9 * * *
+    sources:
+    - type: rss
+      url: https://sspai.com/feed
+      name: 少数派
+    keywords: []
+    rewrite: false
+    translate: ''
+    enabled: false  # 临时禁用，避免去重缓存被自动填充

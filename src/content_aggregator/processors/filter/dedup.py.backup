@@ -1,5 +1,5 @@
 """
-内容去重过滤器（支持 TTL 自动过期）
+内容去重过滤器
 """
 
 import hashlib
@@ -9,9 +9,6 @@ import re
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
-from datetime import datetime, timedelta
-
-from loguru import logger
 
 from loguru import logger
 
@@ -30,33 +27,21 @@ class DedupFilterConfig:
     min_length: int = 50
     # 去重缓存文件路径（空字符串表示不持久化）
     cache_file: str = ""
-    # 去重缓存过期时间（天），0 表示永不过期
-    cache_ttl_days: int = 7
 
 
 class DedupFilter:
-    """内容去重过滤器（支持 TTL 自动过期）"""
+    """内容去重过滤器"""
 
     def __init__(self, config: DedupFilterConfig):
         self.config = config
         self._seen_hashes: set[str] = set()
         self._seen_contents: list[dict] = []
-        # 新增：存储 hash 对应的时间戳 {hash: timestamp}
-        self._hash_timestamps: dict[str, float] = {}
         self._pending_saves: int = 0
         self._save_interval: int = 10  # 每积累 10 条保存一次
 
         # 从缓存文件加载
         self._cache_file = Path(self.config.cache_file) if self.config.cache_file else None
         self._load_cache()
-
-    def _is_expired(self, timestamp: float) -> bool:
-        """检查时间戳是否过期（超过 TTL）"""
-        if self.config.cache_ttl_days <= 0:
-            return False  # TTL=0 表示永不过期
-        now = datetime.now().timestamp()
-        age_days = (now - timestamp) / 86400  # 86400 秒 = 1 天
-        return age_days > self.config.cache_ttl_days
 
     def _normalize(self, text: str) -> str:
         """标准化文本用于比较"""
@@ -178,14 +163,11 @@ class DedupFilter:
 
         # 记录此内容
         if not is_duplicate:
-            now = datetime.now().timestamp()
             self._seen_hashes.add(content_hash)
-            self._hash_timestamps[content_hash] = now
             self._seen_contents.append({
                 "title": title,
                 "content": text,
-                "hash": content_hash,
-                "timestamp": now
+                "hash": content_hash
             })
             # 保留最近 100 条
             if len(self._seen_contents) > 100:
@@ -225,7 +207,6 @@ class DedupFilter:
         # 重置状态
         self._seen_hashes.clear()
         self._seen_contents.clear()
-        self._hash_timestamps.clear()
         
         unique = []
         duplicates = []
@@ -252,75 +233,31 @@ class DedupFilter:
         }
 
     def _load_cache(self) -> None:
-        """从缓存文件加载去重数据（自动过滤过期记录）"""
+        """从缓存文件加载去重数据"""
         if not self._cache_file or not self._cache_file.exists():
             return
         try:
             with open(self._cache_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                
-                # 新格式：包含 timestamps（版本 2+）
-                if "hash_timestamps" in data:
-                    hashes = data.get("hashes", [])
-                    timestamps = data.get("hash_timestamps", [])
-                    contents = data.get("contents", [])
-                    content_timestamps = data.get("content_timestamps", [])
-                    
-                    # 过滤未过期的 hash
-                    valid_count = 0
-                    for i, hash_val in enumerate(hashes):
-                        ts = timestamps[i] if i < len(timestamps) else 0
-                        if not self._is_expired(ts):
-                            self._seen_hashes.add(hash_val)
-                            self._hash_timestamps[hash_val] = ts
-                            valid_count += 1
-                    
-                    # 过滤未过期的 content
-                    for i, content in enumerate(contents):
-                        ts = content_timestamps[i] if i < len(content_timestamps) else 0
-                        if not self._is_expired(ts):
-                            self._seen_contents.append(content)
-                    
-                    logger.info(f"[Dedup] 加载缓存: {valid_count} 条 hash (已过滤过期), {len(self._seen_contents)} 条内容")
-                else:
-                    # 旧格式兼容：假设所有记录都有效（未过期）
-                    self._seen_hashes = set(data.get("hashes", []))
-                    self._seen_contents = data.get("contents", [])
-                    # 为旧记录补充当前时间戳
-                    now = datetime.now().timestamp()
-                    for hash_val in self._seen_hashes:
-                        self._hash_timestamps[hash_val] = now
-                    logger.info(f"[Dedup] 加载缓存（旧格式）: {len(self._seen_hashes)} 条 hash, {len(self._seen_contents)} 条内容")
+                self._seen_hashes = set(data.get("hashes", []))
+                self._seen_contents = data.get("contents", [])
+            logger.info(f"[Dedup] 加载缓存: {len(self._seen_hashes)} 条 hash, {len(self._seen_contents)} 条内容")
         except Exception as e:
             logger.warning(f"[Dedup] 加载缓存失败: {e}")
 
     def _save_cache(self) -> None:
-        """保存去重数据到缓存文件（内部方法，包含时间戳）"""
+        """保存去重数据到缓存文件（内部方法）"""
         if not self._cache_file:
             return
         try:
             self._cache_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            # 构建带时间戳的数据
-            hashes = list(self._seen_hashes)
-            timestamps = [self._hash_timestamps.get(h, 0) for h in hashes]
-            
-            # 只保存最近 100 条 content
-            contents = self._seen_contents[-100:]
-            now = datetime.now().timestamp()
-            content_timestamps = [now] * len(contents)  # 简化：所有 content 使用当前时间
-            
             data = {
-                "hashes": hashes,
-                "hash_timestamps": timestamps,
-                "contents": contents,
-                "content_timestamps": content_timestamps,
-                "count": len(hashes),
-                "version": 2  # 版本 2：包含时间戳
+                "hashes": list(self._seen_hashes),
+                "contents": self._seen_contents[-100:]  # 只保存最近 100 条
             }
             with open(self._cache_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            logger.info(f"[Dedup] 保存缓存: {len(hashes)} 条 hash (含时间戳)")
+            logger.info(f"[Dedup] 保存缓存: {len(self._seen_hashes)} 条 hash")
             self._pending_saves = 0
         except Exception as e:
             logger.warning(f"[Dedup] 保存缓存失败: {e}")
@@ -330,21 +267,17 @@ class DedupFilter:
         self._save_cache()
 
     def reset(self) -> None:
-        """重置去重状态（清除内存+文件缓存）"""
+        """重置去重状态"""
         self._seen_hashes.clear()
         self._seen_contents.clear()
-        self._hash_timestamps.clear()
         self._pending_saves = 0
-        
-        # 删除缓存文件
+        # 重置时也清空缓存文件
         if self._cache_file and self._cache_file.exists():
             try:
                 self._cache_file.unlink()
-                logger.info(f"[Dedup] 缓存文件已删除: {self._cache_file}")
+                logger.info("[Dedup] 缓存文件已删除")
             except Exception as e:
                 logger.warning(f"[Dedup] 删除缓存文件失败: {e}")
-        
-        logger.info("[Dedup] 去重缓存已重置")
 
     def shutdown(self) -> None:
         """关闭时保存缓存"""
