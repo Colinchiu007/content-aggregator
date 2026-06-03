@@ -592,7 +592,7 @@ async def api_collect_all(
                                         "status": "running", "message": message, "progress": progress})
 
         try:
-            task_manager.update(task_id, status="running", message="正在初始化流水线...")
+            task_manager.update(task_id, status="running", message="🔧 初始化流水线...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
                                 "status": "running", "message": "正在初始化..."})
 
@@ -657,9 +657,9 @@ async def api_collect_youtube(
                                         "status": "running", "message": message, "progress": progress})
 
         try:
-            task_manager.update(task_id, status="running", message="正在采集 YouTube...")
+            task_manager.update(task_id, status="running", message="📡 正在采集 YouTube...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "running", "message": "正在采集 YouTube..."})
+                                "status": "running", "message": "📡 正在采集 YouTube..."})
 
             async with ContentPipeline(CONFIG) as pipeline:
                 # 只采集 YouTube 源
@@ -710,9 +710,9 @@ async def api_collect_url(
 
     async def run_task():
         try:
-            task_manager.update(task_id, status="running", message="正在采集...")
+            task_manager.update(task_id, status="running", message="📡 正在采集...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "running", "message": "正在采集..."})
+                                "status": "running", "message": "📡 正在采集..."})
 
             fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
             async with ContentPipeline(CONFIG) as pipeline:
@@ -778,9 +778,9 @@ async def api_collect_link(
     async def run_task():
         nonlocal platform  # 允许内部函数修改外部函数的 platform 参数
         try:
-            task_manager.update(task_id, status="running", message="正在识别平台...")
+            task_manager.update(task_id, status="running", message="🔍 正在识别平台...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "running", "message": "正在识别平台..."})
+                                "status": "running", "message": "🔍 正在识别平台..."})
 
             # 1. 平台识别
             if platform == "auto":
@@ -794,9 +794,9 @@ async def api_collect_link(
                     raise ValueError("无法识别链接平台，请手动选择")
 
             # 2. 调用对应采集器
-            task_manager.update(task_id, status="running", progress=30, message=f"正在采集 {platform} 内容...")
+            task_manager.update(task_id, status="running", progress=30, message=f"🔍 正在采集 {platform} 内容...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "running", "progress": 30, "message": f"正在采集 {platform} 内容..."})
+                                "status": "running", "progress": 30, "message": f"🔍 正在采集 {platform} 内容..."})
 
             config = load_config()
             if platform == "xiaohongshu":
@@ -817,13 +817,13 @@ async def api_collect_link(
             # 3. 如果有视频，尝试 ASR 转写
             if result.get("media_type") == "video" and result.get("metadata", {}).get("video_url"):
                 video_url = result["metadata"]["video_url"]
-                task_manager.update(task_id, status="running", progress=60, message=f"正在下载音频（{video_url[:40]}...）")
+                task_manager.update(task_id, status="running", progress=60, message=f"🎬 正在下载音频（{video_url[:40]}...）")
                 await broadcast_ws({
                     "type": "task_update",
                     "task_id": task_id,
                     "status": "running",
                     "progress": 60,
-                    "message": "正在下载音频...",
+                    "message": "🎬 正在下载音频...",
                 })
 
                 # 构建 ASR 配置（从系统设置读取）
@@ -927,7 +927,7 @@ async def api_rewrite(article_id: str = Form(...), strategy: str = Form(default=
                 await broadcast_ws({"type": "task_update", "task_id": task_id,
                                             "status": "running", "message": message, "progress": progress})
 
-            task_manager.update(task_id, status="running", message="正在改写...", progress=0)
+            task_manager.update(task_id, status="running", message="✍️ 正在改写...", progress=0)
 
             from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
             async with RewriteProcessor(CONFIG) as processor:
@@ -1089,7 +1089,7 @@ async def api_compose(
 
     async def run_task():
         try:
-            task_manager.update(task_id, status="running", message="正在处理...")
+            task_manager.update(task_id, status="running", message="🔧 正在处理...")
 
             from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
             from content_aggregator.exporters import Exporter
