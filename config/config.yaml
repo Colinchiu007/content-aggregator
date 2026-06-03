@@ -160,3 +160,11 @@ scheduler:
     enabled: false
 asr:
   models: []
+
+# 共享认证配置
+auth:
+  jwt_secret: "content-aggregator-jwt-secret-change-in-production"
+  database_type: sqlite
+  sqlite_path: ./data/user.db
+  access_token_expire_minutes: 10080  # 7 天
+  refresh_token_expire_days: 30

@@ -34,6 +34,18 @@ from jinja2 import Environment, FileSystemLoader
 
 from loguru import logger
 
+from loguru import logger
+
+# 共享认证模块
+try:
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent / "team"))
+    from shared.auth.auth_routes import router as auth_router
+    from shared.auth.jwt_handler import get_user_from_token
+    AUTH_ENABLED = True
+except ImportError:
+    AUTH_ENABLED = False
+    logger.warning("共享认证模块未找到，使用无认证模式")
+
 # 先把 web 目录加到 sys.path（settings_crypto 在同一目录）
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
@@ -301,6 +313,11 @@ jinja_env = Environment(
     auto_reload=True,
 )
 
+# 认证路由（如果可用）
+if AUTH_ENABLED:
+    app.include_router(auth_router)
+    logger.info("已启用共享认证模块（/api/auth 路由）")
+
 # Jinja2 全局函数
 def _formatTime(iso):
     if not iso:
@@ -335,6 +352,27 @@ strategy_store = RewriteStrategyStore(db_path=str(BASE_DIR.parent / "data" / "co
 # WebSocket 连接池
 ws_connections: list[WebSocket] = []
 bg_scheduler: BackgroundScheduler | None = None
+
+
+# ========================================================================
+# 认证装饰器
+# ========================================================================
+
+async def require_auth(request: Request):
+    """认证检查装饰器 - 需要登录才能访问"""
+    if not AUTH_ENABLED:
+        return {"user_id": 1, "username": "anonymous", "role": "user"}
+    
+    auth_header = request.headers.get("authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="缺少 Authorization Bearer Token")
+    
+    token = auth_header[7:]
+    user_info = get_user_from_token(token)
+    if not user_info:
+        raise HTTPException(status_code=401, detail="Token 无效或已过期")
+    
+    return user_info
 
 
 async def broadcast_ws(message: dict):
@@ -504,8 +542,9 @@ async def page_system_settings(request: Request):
 # ========================================================================
 
 @app.get("/api/settings")
-async def api_get_settings():
-    """读取当前配置"""
+async def api_get_settings(request: Request):
+    """读取当前配置（需要登录）"""
+    user = await require_auth(request)
     config = _migrate_config_models(load_config())
     return {
         "llm": {
@@ -530,7 +569,8 @@ async def api_get_settings():
 
 @app.post("/api/settings")
 async def api_save_settings(request: Request):
-    """保存配置到 config.yaml"""
+    """保存配置到 config.yaml（需要登录）"""
+    user = await require_auth(request)
     try:
         data = await request.json()
     except Exception as e:
@@ -575,12 +615,14 @@ async def api_save_settings(request: Request):
 
 @app.post("/api/collect/all")
 async def api_collect_all(
+    request: Request,
     rewrite: bool = Form(default=True),
     translate: str | None = Form(default=None),
     formats: str | None = Form(default="markdown"),
     limit: int | None = Form(default=None),
 ):
-    """触发全源采集（后台任务）"""
+    """触发全源采集（后台任务，需要登录）"""
+    user = await require_auth(request)
     task_id = task_manager.create("collect_all", "全源采集")
     fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
 
@@ -640,12 +682,14 @@ async def api_collect_all(
 
 @app.post("/api/collect/youtube")
 async def api_collect_youtube(
+    request: Request,
     rewrite: bool = Form(default=True),
     translate: str | None = Form(default=None),
     formats: str | None = Form(default="markdown"),
     limit: int | None = Form(default=None),
 ):
-    """触发 YouTube 采集（后台任务）"""
+    """触发 YouTube 采集（后台任务，需要登录）"""
+    user = await require_auth(request)
     task_id = task_manager.create("collect_youtube", "YouTube 采集")
     fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
 
@@ -699,13 +743,15 @@ async def api_collect_youtube(
 
 @app.post("/api/collect/url")
 async def api_collect_url(
+    request: Request,
     url: str = Form(...),
     rewrite: bool = Form(default=True),
     strategy: str | None = Form(default=None),
     formats: str | None = Form(default="markdown"),
     limit: int | None = Form(default=None),
 ):
-    """采集单个 URL"""
+    """采集单个 URL（需要登录）"""
+    user = await require_auth(request)
     task_id = task_manager.create("collect_url", f"采集: {url[:50]}")
 
     async def run_task():
@@ -767,12 +813,14 @@ async def api_collect_url(
 
 @app.post("/api/collect-link")
 async def api_collect_link(
+    request: Request,
     url: str = Form(...),
     platform: str = Form(default="auto"),
 ):
     """
-    链接采集 API：解析小红书/抖音链接，返回文案内容
+    链接采集 API：解析小红书/抖音链接，返回文案内容（需要登录）
     """
+    user = await require_auth(request)
     task_id = task_manager.create("collect_link", f"采集链接: {url[:50]}")
 
     async def run_task():
@@ -910,9 +958,15 @@ async def api_collect_link(
 
 
 @app.post("/api/rewrite")
-async def api_rewrite(article_id: str = Form(...), strategy: str = Form(default="REWRITE"),
-                         translate: str = Form(default="no"), industry: str = Form(default="")):
-    """改写已有文章（带进度反馈）"""
+async def api_rewrite(
+    request: Request,
+    article_id: str = Form(...),
+    strategy: str = Form(default="REWRITE"),
+    translate: str = Form(default="no"),
+    industry: str = Form(default=""),
+):
+    """改写已有文章（带进度反馈，需要登录）"""
+    user = await require_auth(request)
     article = article_store.get_by_id(article_id)
     if not article:
         return JSONResponse({"success": False, "error": "文章不存在"})
@@ -1001,8 +1055,9 @@ BUILTIN_STRATEGIES = [
 
 
 @app.get("/api/rewrite-strategies")
-async def api_get_strategies():
-    """\u83b7\u53d6\u7b56\u7565\u5217\u8868\uff08\u5185\u7f6e + \u81ea\u5b9a\u4e49\uff09"""
+async def api_get_strategies(request: Request):
+    """获取策略列表（内置 + 自定义，需要登录）"""
+    user = await require_auth(request)
     custom = strategy_store.get_all()
     # \u6807\u8bb0\u81ea\u5b9a\u4e49\u7b56\u7565
     for s in custom:
@@ -1019,7 +1074,8 @@ async def api_get_strategies():
 
 @app.post("/api/rewrite-strategies")
 async def api_create_strategy(request: Request):
-    """\u65b0\u5efa\u81ea\u5b9a\u4e49\u7b56\u7565"""
+    """新建自定义策略（需要登录）"""
+    user = await require_auth(request)
     data = await request.json()
     name = data.get("name", "").strip()
     description = data.get("description", "").strip()
@@ -1054,8 +1110,9 @@ async def api_update_strategy(strategy_id: str, request: Request):
 
 
 @app.delete("/api/rewrite-strategies/{strategy_id}")
-async def api_delete_strategy(strategy_id: str):
-    """\u5220\u9664\u7b56\u7565"""
+async def api_delete_strategy(strategy_id: str, request: Request):
+    """\u5220\u9664\u7b56\u7565（需要登录）"""
+    user = await require_auth(request)
     try:
         deleted = strategy_store.delete(strategy_id)
         if not deleted:
@@ -1077,6 +1134,7 @@ async def page_rewrite_strategies(request: Request):
 
 @app.post("/api/compose")
 async def api_compose(
+    request: Request,
     title: str = Form(default=""),
     content: str = Form(...),
     action: str = Form(default="export"),
@@ -1084,7 +1142,8 @@ async def api_compose(
     strategy: str = Form(default="REWRITE"),
     translate: str = Form(default="no"),
 ):
-    """手动输入内容 → 改写/导出"""
+    """手动输入内容 → 改写/导出（需要登录）"""
+    user = await require_auth(request)
     task_id = task_manager.create("compose", f"处理: {title[:30] if title else '手动输入'}")
 
     async def run_task():
@@ -1176,8 +1235,9 @@ async def api_compose(
 
 
 @app.get("/api/articles/{article_id}")
-async def api_get_article(article_id: str):
-    """获取单篇文章"""
+async def api_get_article(article_id: str, request: Request):
+    """获取单篇文章（需要登录）"""
+    user = await require_auth(request)
     article = article_store.get_by_id(article_id)
     if not article:
         raise HTTPException(status_code=404, detail="文章不存在")
@@ -1185,8 +1245,9 @@ async def api_get_article(article_id: str):
 
 
 @app.delete("/api/articles/{article_id}")
-async def api_delete_article(article_id: str):
-    """删除文章"""
+async def api_delete_article(article_id: str, request: Request):
+    """删除文章（需要登录）"""
+    user = await require_auth(request)
     if article_store.delete(article_id):
         return JSONResponse({"success": True})
     return JSONResponse({"success": False, "error": "文章不存在"})
@@ -1194,7 +1255,8 @@ async def api_delete_article(article_id: str):
 
 @app.post("/api/export/pdf")
 async def api_export_pdf(request: Request):
-    """导出文章为 PDF"""
+    """导出文章为 PDF（需要登录）"""
+    user = await require_auth(request)
     try:
         body = await request.json()
         from content_aggregator.models import Article as ArticleModel
@@ -1212,15 +1274,17 @@ async def api_export_pdf(request: Request):
 
 
 @app.post("/api/articles/clear")
-async def api_clear_articles():
-    """清空文章"""
+async def api_clear_articles(request: Request):
+    """清空文章（需要登录）"""
+    user = await require_auth(request)
     article_store.clear()
     return JSONResponse({"success": True})
 
 
 @app.post("/api/cache/clear")
-async def api_clear_cache():
-    """清除去重缓存（内存+文件）"""
+async def api_clear_cache(request: Request):
+    """清空缓存（需要登录）"""
+    user = await require_auth(request)
     try:
         # 调用 DedupFilter.reset() 方法
         if pipeline and hasattr(pipeline, 'dedup_filter'):
@@ -1241,8 +1305,9 @@ async def api_clear_cache():
 
 
 @app.get("/api/tasks/{task_id}")
-async def api_get_task(task_id: str):
-    """查询任务状态"""
+async def api_get_task(task_id: str, request: Request):
+    """查询任务状态（需要登录）"""
+    user = await require_auth(request)
     task = task_manager.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
@@ -1250,14 +1315,16 @@ async def api_get_task(task_id: str):
 
 
 @app.get("/api/tasks")
-async def api_list_tasks():
-    """列出所有任务"""
+async def api_list_tasks(request: Request):
+    """获取任务列表（需要登录）"""
+    user = await require_auth(request)
     return JSONResponse(task_manager.get_all())
 
 
 @app.get("/api/sources")
-async def api_list_sources():
-    """列出已配置的数据源"""
+async def api_list_sources(request: Request):
+    """获取数据源列表（需要登录）"""
+    user = await require_auth(request)
     sources = CONFIG.get("sources", {})
     result = {}
     for src_type, src_cfg in sources.items():
@@ -1281,8 +1348,9 @@ async def api_list_sources():
 
 
 @app.post("/api/sources/rss")
-async def api_add_rss_source(name: str = Form(...), url: str = Form(...), enabled: str = Form(default="on")):
-    """添加 RSS 数据源"""
+async def api_add_rss_source(request: Request, name: str = Form(...), url: str = Form(...), enabled: str = Form(default="on")):
+    """添加 RSS 源（需要登录）"""
+    user = await require_auth(request)
     global CONFIG
     if "rss" not in CONFIG.get("sources", {}):
         CONFIG.setdefault("sources", {})["rss"] = []
@@ -1298,8 +1366,9 @@ async def api_add_rss_source(name: str = Form(...), url: str = Form(...), enable
 
 
 @app.delete("/api/sources/rss/{name}")
-async def api_delete_rss_source(name: str):
-    """删除 RSS 数据源"""
+async def api_delete_rss_source(name: str, request: Request):
+    """删除 RSS 数据源（需要登录）"""
+    user = await require_auth(request)
     global CONFIG
     rss_list = CONFIG.get("sources", {}).get("rss", [])
     original_len = len(rss_list)
@@ -1311,8 +1380,9 @@ async def api_delete_rss_source(name: str):
 
 
 @app.post("/api/sources/rss/{name}/toggle")
-async def api_toggle_rss_source(name: str):
-    """启用/禁用 RSS 数据源"""
+async def api_toggle_rss_source(name: str, request: Request):
+    """启用/禁用 RSS 数据源（需要登录）"""
+    user = await require_auth(request)
     global CONFIG
     for s in CONFIG.get("sources", {}).get("rss", []):
         if s.get("name") == name:
@@ -1330,8 +1400,9 @@ _HOT_SOURCE_TYPES = {"douyin_hot", "wangyi", "weibo_hot"}
 
 
 @app.post("/api/sources/hot/{source_type}/toggle")
-async def api_toggle_hot_source(source_type: str):
-    """启用/禁用热点数据源（douyin_hot / wangyi / weibo_hot）"""
+async def api_toggle_hot_source(request: Request, source_type: str):
+    """切换热文源（需要登录）"""
+    user = await require_auth(request)
     if source_type not in _HOT_SOURCE_TYPES:
         return JSONResponse({"success": False, "error": f"不支持的源类型: {source_type}"})
     global CONFIG
@@ -1357,12 +1428,14 @@ _SOURCE_LABELS = {
 
 @app.post("/api/collect/douyin_hot")
 async def api_collect_douyin_hot(
+    request: Request,
     rewrite: bool = Form(default=True),
     translate: str | None = Form(default=None),
     formats: str | None = Form(default="markdown"),
     limit: int | None = Form(default=None),
 ):
-    """触发抖音热点榜采集"""
+    """触发抖音热点榜采集（需要登录）"""
+    user = await require_auth(request)
     task_id = task_manager.create("collect_douyin_hot", "抖音热点榜采集")
     fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
 
@@ -1407,12 +1480,14 @@ async def api_collect_douyin_hot(
 
 @app.post("/api/collect/wangyi")
 async def api_collect_wangyi(
+    request: Request,
     rewrite: bool = Form(default=True),
     translate: str | None = Form(default=None),
     formats: str | None = Form(default="markdown"),
     limit: int | None = Form(default=None),
 ):
-    """触发网易新闻采集"""
+    """触发网易新闻采集（需要登录）"""
+    user = await require_auth(request)
     task_id = task_manager.create("collect_wangyi", "网易新闻采集")
     fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
 
@@ -1457,12 +1532,14 @@ async def api_collect_wangyi(
 
 @app.post("/api/collect/weibo_hot")
 async def api_collect_weibo_hot(
+    request: Request,
     rewrite: bool = Form(default=True),
     translate: str | None = Form(default=None),
     formats: str | None = Form(default="markdown"),
     limit: int | None = Form(default=None),
 ):
-    """触发微博热点采集"""
+    """触发微博热点采集（需要登录）"""
+    user = await require_auth(request)
     task_id = task_manager.create("collect_weibo_hot", "微博热点采集")
     fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
 
@@ -1506,8 +1583,9 @@ async def api_collect_weibo_hot(
 
 
 @app.get("/api/config")
-async def api_get_config():
-    """获取配置（隐藏 API Key）"""
+async def api_get_config(request: Request):
+    """读取配置（需要登录）"""
+    user = await require_auth(request)
     safe_config = json.loads(json.dumps(CONFIG))
     # 脱敏
     def mask_keys(obj, keys=("api_key", "bearer_token", "session_id", "cookie", "xhs_token", "client_key")):
@@ -1526,7 +1604,8 @@ async def api_get_config():
 
 @app.put("/api/config")
 async def api_update_config(request: Request):
-    """保存完整配置（含扩展数据源）——深度合并，null 值不覆盖已有配置"""
+    """更新配置（需要登录）"""
+    user = await require_auth(request)
     global CONFIG
     try:
         body = await request.json()
@@ -1549,8 +1628,9 @@ async def api_update_config(request: Request):
 
 
 @app.get("/api/stats")
-async def api_stats():
-    """统计数据"""
+async def api_stats(request: Request):
+    """获取统计信息（需要登录）"""
+    user = await require_auth(request)
     all_articles = article_store.get_all(per_page=1)
     sources = article_store.get_sources()
     tasks = task_manager.get_all()
@@ -1630,8 +1710,9 @@ async def page_scheduler(request: Request):
 
 
 @app.get("/api/schedules")
-async def api_list_schedules():
-    """列出所有定时任务"""
+async def api_list_schedules(request: Request):
+    """获取定时任务列表（需要登录）"""
+    user = await require_auth(request)
     if not bg_scheduler:
         return JSONResponse({"jobs": []})
     return JSONResponse({"jobs": bg_scheduler.list_jobs()})
@@ -1639,7 +1720,8 @@ async def api_list_schedules():
 
 @app.post("/api/schedules")
 async def api_create_schedule(request: Request):
-    """创建定时任务"""
+    """创建定时任务（需要登录）"""
+    user = await require_auth(request)
     global bg_scheduler
     data = await request.json()
     job = bg_scheduler.create_job(data) if bg_scheduler else None
@@ -1653,7 +1735,8 @@ async def api_create_schedule(request: Request):
 
 @app.put("/api/schedules/{job_id}")
 async def api_update_schedule(job_id: str, request: Request):
-    """更新定时任务"""
+    """更新定时任务（需要登录）"""
+    user = await require_auth(request)
     global bg_scheduler
     data = await request.json()
     job = bg_scheduler.update_job(job_id, data) if bg_scheduler else None
@@ -1664,8 +1747,9 @@ async def api_update_schedule(job_id: str, request: Request):
 
 
 @app.delete("/api/schedules/{job_id}")
-async def api_delete_schedule(job_id: str):
-    """删除定时任务"""
+async def api_delete_schedule(job_id: str, request: Request):
+    """删除定时任务（需要登录）"""
+    user = await require_auth(request)
     global bg_scheduler
     ok = bg_scheduler.delete_job(job_id) if bg_scheduler else False
     if ok:
@@ -1675,8 +1759,9 @@ async def api_delete_schedule(job_id: str):
 
 
 @app.post("/api/schedules/{job_id}/toggle")
-async def api_toggle_schedule(job_id: str):
-    """启用/禁用定时任务"""
+async def api_toggle_schedule(job_id: str, request: Request):
+    """启用/禁用定时任务（需要登录）"""
+    user = await require_auth(request)
     global bg_scheduler
     job = bg_scheduler.toggle_job(job_id) if bg_scheduler else None
     if job:
@@ -1686,8 +1771,9 @@ async def api_toggle_schedule(job_id: str):
 
 
 @app.post("/api/schedules/{job_id}/run")
-async def api_run_schedule_now(job_id: str):
-    """立即执行定时任务（一次）"""
+async def api_run_schedule_now(job_id: str, request: Request):
+    """立即执行定时任务（一次）（需要登录）"""
+    user = await require_auth(request)
     global bg_scheduler
     job = await bg_scheduler.run_now(job_id) if bg_scheduler else None
     if job:
@@ -1696,8 +1782,9 @@ async def api_run_schedule_now(job_id: str):
 
 
 @app.get("/api/schedules/{job_id}/history")
-async def api_schedule_history(job_id: str, limit: int = Query(default=20)):
-    """获取任务执行历史"""
+async def api_schedule_history(job_id: str, request: Request, limit: int = Query(default=20)):
+    """查看定时任务历史（需要登录）"""
+    user = await require_auth(request)
     if not bg_scheduler:
         return JSONResponse({"history": []})
     return JSONResponse({"history": bg_scheduler.get_history(job_id, limit)})
@@ -1781,8 +1868,9 @@ def _migrate_config_models(config: dict) -> dict:
 
 
 @app.get("/api/models/{model_type}")
-async def api_get_models(model_type: str):
-    """获取某类型的所有模型列表"""
+async def api_get_models(request: Request, model_type: str):
+    """获取模型列表（需要登录）"""
+    user = await require_auth(request)
     if model_type not in ("llm", "asr"):
         raise HTTPException(status_code=400, detail="不支持的模型类型")
     config = _migrate_config_models(load_config())
@@ -1793,7 +1881,8 @@ async def api_get_models(model_type: str):
 
 @app.post("/api/models/{model_type}")
 async def api_add_model(model_type: str, request: Request):
-    """新增模型"""
+    """添加模型（需要登录）"""
+    user = await require_auth(request)
     if model_type not in ("llm", "asr"):
         raise HTTPException(status_code=400, detail="不支持的模型类型")
     data = await request.json()
@@ -1836,7 +1925,8 @@ async def api_add_model(model_type: str, request: Request):
 
 @app.put("/api/models/{model_type}/{model_id}")
 async def api_update_model(model_type: str, model_id: str, request: Request):
-    """修改模型"""
+    """更新模型（需要登录）"""
+    user = await require_auth(request)
     if model_type not in ("llm", "asr"):
         raise HTTPException(status_code=400, detail="不支持的模型类型")
     data = await request.json()
@@ -1864,8 +1954,9 @@ async def api_update_model(model_type: str, model_id: str, request: Request):
 
 
 @app.delete("/api/models/{model_type}/{model_id}")
-async def api_delete_model(model_type: str, model_id: str):
-    """删除模型"""
+async def api_delete_model(model_type: str, model_id: str, request: Request):
+    """删除模型（需要登录）"""
+    user = await require_auth(request)
     if model_type not in ("llm", "asr"):
         raise HTTPException(status_code=400, detail="不支持的模型类型")
     config = _migrate_config_models(load_config())
@@ -1884,8 +1975,9 @@ async def api_delete_model(model_type: str, model_id: str):
 
 
 @app.post("/api/models/{model_type}/{model_id}/default")
-async def api_set_default_model(model_type: str, model_id: str):
-    """设置默认模型"""
+async def api_set_default_model(model_type: str, model_id: str, request: Request):
+    """设置默认模型（需要登录）"""
+    user = await require_auth(request)
     if model_type not in ("llm", "asr"):
         raise HTTPException(status_code=400, detail="不支持的模型类型")
     config = _migrate_config_models(load_config())
