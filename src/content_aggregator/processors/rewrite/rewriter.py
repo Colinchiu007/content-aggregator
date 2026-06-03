@@ -1,100 +1,64 @@
 """
-LLM 改写处理器
-
-使用大语言模型对内容进行改写、摘要、风格迁移等处理。
-
-支持策略：
-- SUMMARIZE: 摘要提取
-- STYLE_TRANSFER: 风格迁移
-- PARAPHRASE: 伪原创
-- REWRITE: 深度改写
-- EXPAND: 内容扩展
-
-使用示例：
-    config = {
-        "llm": {
-            "provider": "deepseek",
-            "api_key": "sk-xxx",
-            "model": "deepseek-chat"
-        }
-    }
-
-    async with RewriteProcessor(config) as processor:
-        result = await processor.rewrite(content)
-        if result.success:
-            print(result.rewritten_content)
+内容改写处理器
 """
 
 import asyncio
+import json
 import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from loguru import logger
 
 from content_aggregator.models import Content
+from content_aggregator.clients.llm_client import LLMClient
 
 
 class RewriteStrategy(Enum):
-    """
-    改写策略枚举
+    """改写策略"""
+    SUMMARIZE = "summarize"        # 摘要提取
+    STYLE_TRANSFER = "style_transfer"  # 风格迁移
+    PARAPHRASE = "paraphrase"      # 伪原创
+    REWRITE = "rewrite"            # 深度改写
+    EXPAND = "expand"              # 内容扩展
+    SHORT_VIDEO = "short_video"    # 短视频文案仿写
 
-    Attributes:
-        SUMMARIZE: 摘要提取 - 从长文中提取核心要点
-        STYLE_TRANSFER: 风格迁移 - 改变文章风格保持内容
-        PARAPHRASE: 伪原创 - 同义改写保持原意
-        REWRITE: 深度改写 - 重新组织结构和表达
-        EXPAND: 内容扩展 - 添加背景案例数据
-    """
-    SUMMARIZE = "summarize"
-    STYLE_TRANSFER = "style_transfer"
-    PARAPHRASE = "paraphrase"
-    REWRITE = "rewrite"
-    EXPAND = "expand"
+    @property
+    def display_name(self) -> str:
+        names = {
+            self.SUMMARIZE: "摘要提取",
+            self.STYLE_TRANSFER: "风格迁移",
+            self.PARAPHRASE: "伪原创",
+            self.REWRITE: "深度改写",
+            self.EXPAND: "内容扩展",
+            self.SHORT_VIDEO: "短视频文案",
+        }
+        return names.get(self, self.value)
 
 
 @dataclass
 class RewriteConfig:
-    """
-    改写配置
-
-    Attributes:
-        strategy: 改写策略，默认 REWRITE
-        style_id: 预设风格 ID（可选）
-        style_config: 风格配置字典
-        min_word_count: 最小字数
-        max_word_count: 最大字数
-        target_word_count: 目标字数
-        translate_to: 翻译目标语言（如 "zh" 表示先翻译成中文再改写）
-    """
+    """改写配置"""
     strategy: RewriteStrategy = RewriteStrategy.REWRITE
     style_id: str | None = None
     style_config: dict[str, Any] = field(default_factory=dict)
     min_word_count: int = 500
     max_word_count: int = 5000
     target_word_count: int = 3000
+    # 自定义提示词（最高优先级，覆盖策略默认提示词和配置文件提示词）
+    custom_prompt: str | None = None
+    # 翻译目标语言。设为 "zh" 时先翻译成中文再改写
     translate_to: str | None = None
+    # 目标行业（可选，按行业语境改写）
+    industry: str | None = None
 
 
 @dataclass
 class RewriteResult:
-    """
-    改写结果
-
-    Attributes:
-        success: 是否成功
-        original_content: 原始内容对象
-        rewritten_content: 改写后的正文
-        title: 改写后的标题
-        summary: 摘要
-        keywords: 关键词列表
-        error: 错误信息
-        duration: 处理耗时（秒）
-        metadata: 元数据（token 使用量等）
-    """
+    """改写结果"""
     success: bool
     original_content: Content | None = None
     rewritten_content: str = ""
@@ -110,124 +74,186 @@ class RewriteProcessor:
     """
     内容改写处理器
 
-    使用大语言模型对内容进行改写处理。
-
     使用示例：
-        config = {
-            "llm": {
-                "provider": "deepseek",
-                "api_key": "sk-xxx",
-                "model": "deepseek-chat",
-                "base_url": "https://api.deepseek.com"
-            }
-        }
-
         async with RewriteProcessor(config) as processor:
-            result = await processor.rewrite(content)
+            result = await processor.rewrite(content, config)
+
+    提示词优先级：
+        1. RewriteConfig.custom_prompt（最高）
+        2. config['rewrite']['prompts'][strategy]（配置文件）
+        3. SYSTEM_PROMPTS（内置默认值）
     """
 
-    # 各策略对应的系统提示词
-    SYSTEM_PROMPTS = {
-        RewriteStrategy.SUMMARIZE: """你是一个专业的文章摘要助手。请根据提供的文章内容，提取核心要点，生成简洁准确的摘要。
-
+    DEFAULT_PROMPTS = {
+        RewriteStrategy.SUMMARIZE: """你是一个专业的文章摘要助手。请根据提供的文章内容,提取核心要点,生成简洁准确的摘要。
+直接输出结果，不要任何寒暄或前缀。
 要求：
 1. 保留关键信息和核心观点
 2. 语言简洁流畅
-3. 长度控制在 200-500 字
+3. 长度控制在200-500字
 4. 使用中文输出""",
 
         RewriteStrategy.STYLE_TRANSFER: """你是一个专业的文案风格转换助手。请将文章内容转换为指定的风格。
-
+直接输出结果，不要任何寒暄或前缀。
 要求：
 1. 保持原文的核心信息和观点
 2. 严格按照指定的风格要求进行转换
 3. 语言流畅自然
 4. 使用中文输出""",
 
-        RewriteStrategy.PARAPHRASE: """你是一个专业的伪原创助手。请在不改变原文核心意思的前提下，对文章进行改写，使其具有原创性。
-
+        RewriteStrategy.PARAPHRASE: """你是一个专业的伪原创助手。请在不改变原文核心意思的前提下,对文章进行改写,使其具有原创性。
+同时改写标题，在正文前用【标题】标记改写后的标题。
+直接输出结果，不要任何寒暄或前缀。
 要求：
 1. 保持原文的核心信息和观点不变
 2. 改变表达方式和句式结构
 3. 替换同义词和近义词
 4. 使用中文输出""",
 
-        RewriteStrategy.REWRITE: """你是一个专业的文章改写助手。请对原文进行深度改写，重新组织结构和表达方式。
-
+        RewriteStrategy.REWRITE: """你是一个专业的文章改写助手。请对原文进行深度改写,重新组织结构和表达方式。
 要求：
 1. 保持原文的核心信息和主要观点
 2. 重新组织文章结构和段落
 3. 改变表达方式和句式
-4. 使用中文输出""",
+4. 使用中文输出
+5. 同时改写标题，在正文前用【标题】标记改写后的标题
+6. 直接输出改写结果，不要任何寒暄、解释或前缀（如"好的，这是为您改写后的文章"等）""",
 
-        RewriteStrategy.EXPAND: """你是一个专业的内容扩展助手。请在原文基础上添加更多背景、案例、数据等信息，生成更丰富的内容。
-
+        RewriteStrategy.EXPAND: """你是一个专业的内容扩展助手。请在原文基础上添加更多背景、案例、数据等信息,生成更丰富的内容。
 要求：
 1. 保持原文的核心主题和观点
 2. 添加相关的背景信息和行业数据
 3. 引入更多实际案例
-4. 使用中文输出""",
+4. 使用中文输出
+5. 同时改写标题，在正文前用【标题】标记改写后的标题
+6. 直接输出结果，不要任何寒暄、解释或前缀""",
+
+        RewriteStrategy.SHORT_VIDEO: """根据下面要求改写：
+你是一名专业的短视频文案仿写专家，具备以下核心能力：
+- 精准识别爆款短视频文案的选题角度和内容结构
+- 保持40%-50%内容相似度的改写技巧
+- 自然融入用户提供的替换信息
+- 完美复现短视频特有的口语化、情感化表达风格
+
+📝 任务指令模板
+
+【仿写核心要求】
+1. 选题一致性
+  - 完全保持原文案的核心主题方向
+  - 继承相同的价值主张和情感基调
+2. 结构还原度
+  - 段落数量和组织顺序完全一致
+  - 保持相同的叙事逻辑（如：问题→经历→反思）
+  - 保留原有的内容结构元素
+3. 内容相似度控制
+  - 保持40%-50%的内容相似度
+  - 关键信息点必须保留
+  - 通过以下方式实现差异化：
+  - 调整具体描述用语
+  - 改变事例细节但保留核心情节
+  - 使用同义词替换但保持语义一致
+  - 调整句子结构但传达相同信息
+
+🔧 具体操作步骤
+请严格按以下流程执行：
+
+第一步：结构分析
+  - 识别原文案的段落划分（如：个人经历→问题出现→反思总结）
+  - 标记关键结构节点（转折点、情感高潮、结论部分）
+第二步：内容要素提取
+  - 核心主题：[例如：个人经历分享]
+  - 情感主线：[例如：愧疚→反思→建议]
+  - 关键信息点：[列出5-8个必须保留的核心信息]
+  - 结构特色：[如：时间顺序叙事、问题解决方案等]
+第三步：相似度控制改写
+  - 保留50%核心内容：关键情节、主要观点、重要数据
+  - 改写50%内容：具体描述、次要细节、表达方式
+  - 检查标准：读起来像同一主题但不是同一篇文章
+第四步：风格优化
+  - 保持口语化表达和情感化语言
+  - 确保最终文案长度与原文案相近
+
+📋 输出格式要求
+请输出仿写后的完整文案，包含：
+  - 保持语句通顺，没有错别字
+  - 严格保持原段落结构
+  - 自然换行
+  - 结尾保留类似的祝福或总结语
+  - 文案里禁止出现任何emoji表情
+
+【限制】
+严禁你在输出的结果开头出现相应我的任何回答，比如"好的，这是为您优化的短视频文案，严格遵循您的指令和要求："这样类似的话，我需要你直接输出结果。""",
     }
 
     def __init__(self, config: dict[str, Any]):
         """
-        初始化改写处理器
+        初始化处理器
 
         参数：
-            config: 配置字典，需包含 llm 配置
-                - provider: LLM 提供商（deepseek/openai/qwen）
-                - api_key: API 密钥
-                - model: 模型名称
-                - base_url: API 基础 URL（可选）
+            config: 配置字典，支持从 config['rewrite']['prompts'] 覆盖提示词模板
         """
         self.config = config
         self.llm_config = config.get("llm", {})
-        self.client: httpx.AsyncClient | None = None
+        self.rewrite_config = config.get("rewrite", {})
+        # 使用统一的 LLMClient
+        self.llm_client = LLMClient(self.llm_config)
+        # 从配置文件加载自定义提示词（覆盖默认值）
+        self._custom_prompts: dict[str, str] = self.rewrite_config.get("prompts", {})
 
-    async def __aenter__(self) -> "RewriteProcessor":
-        """异步上下文管理器入口"""
-        timeout = self.llm_config.get("timeout", 120)
-        self.client = httpx.AsyncClient(timeout=timeout)
+    async def __aenter__(self):
+        # LLMClient 内部自己管理 HTTP 客户端
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """异步上下文管理器退出"""
-        if self.client:
-            await self.client.aclose()
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.llm_client.close()
 
     async def rewrite(
         self,
         content: Content,
-        rewrite_config: RewriteConfig | None = None
+        rewrite_config: RewriteConfig | None = None,
+        progress_callback: Callable | None = None
     ) -> RewriteResult:
-        """
-        改写单篇内容
-
-        参数：
-            content: 待改写的内容对象
-            rewrite_config: 改写配置（可选）
-
-        返回：
-            RewriteResult 对象
-        """
+        """改写单篇内容"""
         if rewrite_config is None:
             rewrite_config = RewriteConfig()
 
         start_time = time.time()
+        logger.info(f"[RewriteProcessor.rewrite] START: {content.title[:60]}")
 
         try:
+            # 报告进度：开始构建提示词
+            if progress_callback:
+                await progress_callback(0, 1, "正在构建提示词...", 5)
+
             prompt = self._build_prompt(content, rewrite_config)
-            llm_response = await self._call_llm(prompt)
+            
+            # 报告进度：开始调用 LLM（最耗时的步骤）
+            if progress_callback:
+                await progress_callback(0, 1, "正在调用 LLM 改写...", 10)
+            
+            logger.info(f"[RewriteProcessor.rewrite] Prompt built, calling LLM...")
+            llm_response = await self.llm_client.call(prompt)
+            
+            # 报告进度：LLM 响应已收到，正在解析
+            if progress_callback:
+                await progress_callback(0, 1, "LLM 响应已收到，正在解析...", 60)
+            
+            logger.info(f"[RewriteProcessor.rewrite] LLM response received, parsing...")
             response_text = llm_response["content"]
             usage = llm_response.get("usage", {})
 
             result = self._parse_response(response_text, content, rewrite_config, usage)
             result.duration = time.time() - start_time
+            logger.info(f"[RewriteProcessor.rewrite] SUCCESS: {content.title[:60]} -> {len(result.rewritten_content)} chars")
+
+            # 报告进度：完成
+            if progress_callback:
+                await progress_callback(0, 1, "改写完成", 100)
 
             return result
 
         except Exception as e:
-            logger.error(f"Rewrite error: {e}")
+            logger.error(f"[RewriteProcessor.rewrite] ERROR: {content.title[:60]}: {e}", exc_info=True)
             return RewriteResult(
                 success=False,
                 original_content=content,
@@ -238,31 +264,39 @@ class RewriteProcessor:
     async def rewrite_batch(
         self,
         contents: list[Content],
-        rewrite_config: RewriteConfig | None = None
+        rewrite_config: RewriteConfig | None = None,
+        progress_callback: Callable | None = None
     ) -> list[RewriteResult]:
-        """
-        批量改写内容（带并发控制）
-
-        参数：
-            contents: 内容对象列表
-            rewrite_config: 改写配置（可选）
-
-        返回：
-            RewriteResult 列表
-        """
+        """批量改写内容（带并发控制）"""
         if rewrite_config is None:
             rewrite_config = RewriteConfig()
 
-        semaphore = asyncio.Semaphore(3)  # 并发限制为 3
+        results = []
+        semaphore = asyncio.Semaphore(3)
+        completed = 0
+        total = len(contents)
 
-        async def rewrite_with_limit(content: Content) -> RewriteResult:
+        async def rewrite_with_limit(content: Content, index: int) -> RewriteResult:
+            nonlocal completed
             async with semaphore:
-                return await self.rewrite(content, rewrite_config)
+                # 报告进度（开始改写当前文章）
+                if progress_callback:
+                    progress = int(completed / total * 100) if total > 0 else 0
+                    await progress_callback(completed, total, f"正在改写: {content.title[:30]}", progress)
+                
+                result = await self.rewrite(content, rewrite_config, progress_callback=None)  # 不传递回调，避免冲突
+                
+                completed += 1
+                # 报告进度（完成当前文章）
+                if progress_callback:
+                    progress = int(completed / total * 100) if total > 0 else 100
+                    await progress_callback(completed, total, f"完成改写: {content.title[:30]}", progress)
+                
+                return result
 
-        tasks = [rewrite_with_limit(content) for content in contents]
+        tasks = [rewrite_with_limit(content, i) for i, content in enumerate(contents)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # 处理异常结果
         processed_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
@@ -276,28 +310,49 @@ class RewriteProcessor:
 
         return processed_results
 
+    def _get_prompt(self, strategy: RewriteStrategy) -> str:
+        """
+        获取指定策略的提示词
+
+        优先级：配置文件 > 默认值
+        """
+        strategy_key = strategy.value
+        if strategy_key in self._custom_prompts and self._custom_prompts[strategy_key].strip():
+            return self._custom_prompts[strategy_key]
+        return self.DEFAULT_PROMPTS.get(strategy, self.DEFAULT_PROMPTS[RewriteStrategy.REWRITE])
+
     def _build_prompt(self, content: Content, config: RewriteConfig) -> str:
-        """
-        构建完整的提示词
+        """构建完整的提示词"""
+        # 1. 优先使用 RewriteConfig 中的自定义提示词
+        if config.custom_prompt:
+            user_prompt = f"""请处理以下文章:
 
-        参数：
-            content: 内容对象
-            config: 改写配置
+【标题】
+{content.title}
 
-        返回：
-            完整的提示词字符串
-        """
-        system_prompt = self.SYSTEM_PROMPTS.get(
-            config.strategy,
-            self.SYSTEM_PROMPTS[RewriteStrategy.REWRITE]
-        )
+【正文】
+{content.content[:10000]}
+"""
+            return f"{config.custom_prompt}\n\n{user_prompt}"
+
+        # 2. 从配置或默认值获取提示词
+        system_prompt = self._get_prompt(config.strategy)
+
+        # 翻译要求（先翻译成中文再改写）
+        if config.translate_to == "zh":
+            system_prompt = (
+                "【重要】原文是英文，请按以下步骤处理：\n"
+                "第一步：先将全文翻译成流畅的中文（保留原文的技术术语）。\n"
+                "第二步：对翻译后的中文内容按以下要求进行改写。\n"
+                "---\n"
+            ) + system_prompt
 
         # 添加风格配置
         if config.style_config:
             style_rules = []
             tone = config.style_config.get("tone")
             if tone:
-                style_rules.append(f"语气: {tone}")
+                style_rules.append(f"语气:{tone}")
 
             perspective = config.style_config.get("perspective")
             if perspective:
@@ -306,15 +361,22 @@ class RewriteProcessor:
                     "second_person": "第二人称",
                     "third_person": "第三人称"
                 }
-                style_rules.append(f"人称: {perspective_map.get(perspective, perspective)}")
+                style_rules.append(f"人称:{perspective_map.get(perspective, perspective)}")
 
             if style_rules:
                 system_prompt += "\n\n风格要求:\n" + "\n".join(style_rules)
 
+        # 行业定向（按行业语境改写）
+        if config.industry:
+            system_prompt += (
+                f"\n\n目标行业：{config.industry}"
+                f"\n请基于该行业的读者语境、专业术语和表达习惯进行改写。"
+            )
+
         # 字数要求
         system_prompt += (
-            f"\n\n字数要求: {config.min_word_count}-{config.max_word_count} 字，"
-            f"目标 {config.target_word_count} 字。"
+            f"\n\n字数要求:{config.min_word_count}-{config.max_word_count}字,"
+            f"目标{config.target_word_count}字。"
         )
 
         # 原文
@@ -329,71 +391,8 @@ class RewriteProcessor:
 
         return f"{system_prompt}\n\n{user_prompt}"
 
-    async def _call_llm(self, prompt: str) -> dict:
-        """
-        调用 LLM API
-
-        参数：
-            prompt: 提示词
-
-        返回：
-            包含 content 和 usage 的字典
-        """
-        provider = self.llm_config.get("provider", "deepseek")
-        api_key = self.llm_config.get("api_key")
-        model = self.llm_config.get("model", "deepseek-chat")
-        base_url = self.llm_config.get("base_url", "https://api.deepseek.com")
-        max_tokens = self.llm_config.get("max_tokens", 4096)
-
-        if not api_key:
-            raise ValueError("LLM API key is required")
-
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-
-        data = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens,
-            "temperature": 0.7
-        }
-
-        url = f"{base_url}/chat/completions"
-        retry = self.llm_config.get("retry", 3)
-        last_error = None
-
-        for attempt in range(retry):
-            try:
-                response = await self.client.post(url, json=data, headers=headers)
-
-                if response.status_code == 200:
-                    result = response.json()
-                    usage = result.get("usage", {})
-                    return {
-                        "content": result["choices"][0]["message"]["content"],
-                        "usage": usage
-                    }
-
-                elif response.status_code == 429:
-                    # 速率限制，指数退避
-                    wait_time = 2 ** attempt
-                    logger.warning(f"Rate limited, waiting {wait_time}s")
-                    await asyncio.sleep(wait_time)
-                    continue
-
-                else:
-                    error_msg = f"API error: {response.status_code} - {response.text}"
-                    logger.error(error_msg)
-                    raise Exception(error_msg)
-
-            except Exception as e:
-                last_error = e
-                logger.warning(f"LLM call attempt {attempt + 1} failed: {e}")
-                await asyncio.sleep(1)
-
-        raise Exception(f"LLM call failed after {retry} attempts: {last_error}")
+    # _call_llm() 已删除，改用统一的 LLMClient
+    # 如需自定义逻辑，在 LLMClient 中添加新的 _call_xxx() 方法
 
     def _parse_response(
         self,
@@ -402,35 +401,26 @@ class RewriteProcessor:
         config: RewriteConfig,
         usage: dict[str, int] | None = None
     ) -> RewriteResult:
-        """
-        解析 LLM 响应
-
-        参数：
-            response: LLM 返回的原始文本
-            original_content: 原始内容对象
-            config: 改写配置
-            usage: token 使用量
-
-        返回：
-            RewriteResult 对象
-        """
+        """解析 LLM 响应"""
         # 提取标题
         title = original_content.title
-        title_match = re.search(r"【标题】[::]?\s*(.+?)(?:\n|$)", response)
-        if title_match:
-            title = title_match.group(1).strip()
+        if "【标题】" in response or "标题:" in response:
+            title_match = re.search(r"【标题】[::]?\s*(.+?)(?:\n|$)", response)
+            if title_match:
+                title = title_match.group(1).strip()
 
         # 提取摘要
         summary = ""
-        summary_match = re.search(
-            r"【摘要】[::]?\s*(.+?)(?:\n【|\n\n|$)",
-            response,
-            re.DOTALL
-        )
-        if summary_match:
-            summary = summary_match.group(1).strip()
+        if "【摘要】" in response or "摘要:" in response:
+            summary_match = re.search(
+                r"【摘要】[::]?\s*(.+?)(?:\n【|\n\n|$)",
+                response,
+                re.DOTALL
+            )
+            if summary_match:
+                summary = summary_match.group(1).strip()
 
-        # 提取正文（移除标记部分）
+        # 提取正文
         content_text = response
         for prefix in ["【标题】", "【摘要】", "标题:", "摘要:"]:
             if prefix in content_text:
@@ -442,36 +432,29 @@ class RewriteProcessor:
                             content_text = content_text.split(sep, 1)[1]
                             break
 
-        # 清理 LLM 生成的引导语
-        intro_patterns = [
-            r'^好的[，,]?请(?:先)?看以下为您[^。\n]+[。]?\s*',
-            r'^以下是为您[^。\n]+[。]?\s*',
-            r'^好的[，,]以下(?:内容|文章)[^。\n]*[。]?\s*',
-            r'^好的[，,]?已为您[^。\n]+[。]?\s*',
-            r'^好的[，,]?请(?:您)?欣赏[^。\n]*[。]?\s*',
-        ]
-        for pattern in intro_patterns:
-            content_text = re.sub(pattern, "", content_text, count=1, flags=re.IGNORECASE)
-
-        # 清理正文开头的摘要/标题标记行（非 SUMMARIZE 策略时）
-        if config.strategy.value != 'SUMMARIZE':
-            summary_prefixes = [
-                r'\*\*摘要\*\*[：:]?\s*\n?',
-                r'##\s*摘要[：:]?\s*\n?',
-                r'【摘要】[：:]?\s*\n?',
-                r'摘要[：:]\s*\n?',
-                r'\*\*Abstract\*\*[：:]?\s*\n?',
-            ]
-            for sp in summary_prefixes:
-                content_text = re.sub(sp, '', content_text, count=1)
-
         content_text = content_text.strip()
+
+        # 清理LLM常见的寒暄前缀
+        import re as _re
+        _prefix_patterns = [
+            r'^好的[，,].{0,20}?[：:]\s*',
+            r'^好的[，,].{0,20}?[。.]\s*',
+            r'^以下是.{0,20}?[：:]\s*',
+            r'^这是.{0,20}?[：:]\s*',
+            r'^好的[，。].*?文章[。]\s*',
+        ]
+        for pat in _prefix_patterns:
+            m = _re.match(pat, content_text)
+            if m:
+                content_text = content_text[m.end():].strip()
+                break
 
         # 提取关键词
         keywords = []
-        kw_match = re.search(r"【关键词】[::]?\s*(.+?)(?:\n|$)", response)
-        if kw_match:
-            keywords = [k.strip() for k in kw_match.group(1).split(",")]
+        if "【关键词】" in response or "关键词:" in response:
+            kw_match = re.search(r"【关键词】[::]?\s*(.+?)(?:\n|$)", response)
+            if kw_match:
+                keywords = [k.strip() for k in kw_match.group(1).split(",")]
 
         # 元数据
         metadata = {
@@ -479,6 +462,8 @@ class RewriteProcessor:
             "original_length": len(original_content.content),
             "rewritten_length": len(content_text),
             "word_count": len(content_text),
+            "rewritten": True,
+            "translate_to": config.translate_to,
         }
 
         if usage:
@@ -491,7 +476,7 @@ class RewriteProcessor:
             original_content=original_content,
             rewritten_content=content_text,
             title=title,
-            summary=summary or self._truncate(content_text, 200),
+            summary=self._truncate(summary or content_text, 200),
             keywords=keywords,
             metadata=metadata
         )

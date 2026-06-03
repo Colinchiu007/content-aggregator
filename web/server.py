@@ -34,12 +34,29 @@ from jinja2 import Environment, FileSystemLoader
 
 from loguru import logger
 
-# 添加 src 到路径
+# 先把 web 目录加到 sys.path（settings_crypto 在同一目录）
+sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+
+from settings_crypto import encrypt_config, decrypt_config
 
 from content_aggregator.workflows.pipeline import ContentPipeline
 from content_aggregator.models import Article, Content
-from web.server_scheduler import BackgroundScheduler
+from content_aggregator.strategy_store import RewriteStrategyStore
+from server_scheduler import BackgroundScheduler
+
+
+# ========================================================================
+# 自定义 render_template（替代 FastAPI 默认的）
+# ========================================================================
+
+def render_template(template_name: str, context: dict) -> HTMLResponse:
+    """渲染 Jinja2 模板"""
+    template_dir = Path(__file__).parent / "templates"
+    env = Environment(loader=FileSystemLoader(str(template_dir)))
+    template = env.get_template(template_name)
+    html = template.render(**context)
+    return HTMLResponse(content=html)
 
 
 # ========================================================================
@@ -47,7 +64,7 @@ from web.server_scheduler import BackgroundScheduler
 # ========================================================================
 
 def load_config(config_path: str | None = None) -> dict:
-    """加载 YAML 配置文件"""
+    """加载 YAML 配置文件（自动解密 API Key）"""
     import yaml
 
     if config_path:
@@ -57,18 +74,22 @@ def load_config(config_path: str | None = None) -> dict:
 
     if path.exists():
         with open(path, encoding="utf-8") as f:
-            return yaml.safe_load(f)
+            config = yaml.safe_load(f) or {}
+        decrypt_config(config)
+        return config
     return {}
 
 
 def save_config(config: dict, config_path: str | None = None) -> bool:
-    """保存配置到 YAML 文件"""
+    """保存配置到 YAML 文件（自动加密 API Key）"""
     import yaml
 
     path = Path(config_path) if config_path else Path(__file__).parent.parent / "config" / "config.yaml"
     try:
+        # 加密敏感字段后再写入
+        config_copy = encrypt_config({k: v for k, v in config.items()})
         with open(path, "w", encoding="utf-8") as f:
-            yaml.dump(config, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            yaml.dump(config_copy, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
         return True
     except Exception as e:
         logger.error(f"保存配置失败: {e}")
@@ -270,6 +291,9 @@ CONFIG = load_config()
 
 app = FastAPI(title="Content Aggregator", version="1.0.0")
 
+# 静态文件服务
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
 # 模板（绕过 Starlette Jinja2Templates，直接使用 Jinja2，修复 unhashable type: 'dict' 错误）
 jinja_env = Environment(
     loader=FileSystemLoader(str(BASE_DIR / "templates")),
@@ -305,6 +329,7 @@ def render_template(name: str, context: dict) -> HTMLResponse:
 # 存储
 article_store = ArticleStore(data_dir=str(BASE_DIR.parent / "data"))
 task_manager = TaskManager()
+strategy_store = RewriteStrategyStore(db_path=str(BASE_DIR.parent / "data" / "content_aggregator.db"))
 
 # WebSocket 连接池
 ws_connections: list[WebSocket] = []
@@ -436,6 +461,14 @@ async def page_compose(request: Request):
     })
 
 
+@app.get("/collect-link", response_class=HTMLResponse)
+async def page_collect_link(request: Request):
+    """链接采集页面"""
+    return render_template("collect-link.html", {
+        "request": request,
+    })
+
+
 @app.get("/tasks", response_class=HTMLResponse)
 async def page_tasks(request: Request):
     """任务列表"""
@@ -446,8 +479,96 @@ async def page_tasks(request: Request):
     })
 
 
+@app.get("/system-settings", response_class=HTMLResponse)
+async def page_system_settings(request: Request):
+    """模型与采集设置（LLM、ASR、Cookie）"""
+    config = _migrate_config_models(load_config())
+    # 确保所有配置section都有默认值，避免Jinja2模板报错
+    for key in ["llm", "asr", "sources"]:
+        if key not in config:
+            config[key] = {}
+    return render_template("system-settings.html", {
+        "request": request,
+        "config": config,
+    })
+
+
 # ========================================================================
 # API 路由
+# ========================================================================
+
+# ========================================================================
+# 设置 API
+# ========================================================================
+
+@app.get("/api/settings")
+async def api_get_settings():
+    """读取当前配置"""
+    config = _migrate_config_models(load_config())
+    return {
+        "llm": {
+            "base_url": config.get("llm", {}).get("base_url", "http://127.0.0.1:19000/proxy/llm"),
+            "model": config.get("llm", {}).get("model", "qclaw/pool-hy3-preview"),
+            "api_key": config.get("llm", {}).get("api_key", ""),
+            "models": config.get("llm", {}).get("models", []),
+            "default_model_id": config.get("llm", {}).get("default_model_id", ""),
+        },
+        "asr": {
+            "api_endpoint": config.get("asr", {}).get("api_endpoint", ""),
+            "api_key": config.get("asr", {}).get("api_key", ""),
+            "models": config.get("asr", {}).get("models", []),
+        },
+        "sources": {
+            "xiaohongshu": {
+                "cookie": config.get("sources", {}).get("xiaohongshu", {}).get("cookie", ""),
+            }
+        }
+    }
+
+
+@app.post("/api/settings")
+async def api_save_settings(request: Request):
+    """保存配置到 config.yaml"""
+    try:
+        data = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"无效的 JSON 数据: {e}")
+
+    # 验证 LLM API 端点格式
+    llm_base_url = data.get("llm", {}).get("base_url", "")
+    if llm_base_url and not llm_base_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="LLM API 端点格式错误，必须以 http:// 或 https:// 开头")
+
+    # 深度合并配置（保留其他配置项）
+    config = load_config()
+    
+    # 更新 LLM 配置
+    if "llm" in data:
+        config["llm"] = {**config.get("llm", {}), **data["llm"]}
+    
+    # 更新 ASR 配置
+    if "asr" in data:
+        config["asr"] = {**config.get("asr", {}), **data["asr"]}
+    
+    # 更新 sources 配置
+    if "sources" in data:
+        if "sources" not in config:
+            config["sources"] = {}
+        if "xiaohongshu" in data["sources"]:
+            if "xiaohongshu" not in config["sources"]:
+                config["sources"]["xiaohongshu"] = {}
+            config["sources"]["xiaohongshu"]["cookie"] = data["sources"]["xiaohongshu"].get("cookie", "")
+
+    # 保存到 config.yaml
+    if save_config(config):
+        logger.info("[设置] 配置已保存")
+        return {"status": "success", "message": "配置已保存"}
+    else:
+        raise HTTPException(status_code=500, detail="保存配置失败")
+
+
+# ========================================================================
+# 采集 API
 # ========================================================================
 
 @app.post("/api/collect/all")
@@ -642,9 +763,100 @@ async def api_collect_url(
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
+@app.post("/api/collect-link")
+async def api_collect_link(
+    url: str = Form(...),
+    platform: str = Form(default="auto"),
+):
+    """
+    链接采集 API：解析小红书/抖音链接，返回文案内容
+    """
+    task_id = task_manager.create("collect_link", f"采集链接: {url[:50]}")
+
+    async def run_task():
+        nonlocal platform  # 允许内部函数修改外部函数的 platform 参数
+        try:
+            task_manager.update(task_id, status="running", message="正在识别平台...")
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "running", "message": "正在识别平台..."})
+
+            # 1. 平台识别
+            if platform == "auto":
+                from content_aggregator.sources.collectors.xiaohongshu_collector import XiaohongshuCollector
+                from content_aggregator.sources.collectors.douyin_collector import DouyinCollector
+                if XiaohongshuCollector.detect_platform(url):
+                    platform = "xiaohongshu"
+                elif DouyinCollector.detect_platform(url):
+                    platform = "douyin"
+                else:
+                    raise ValueError("无法识别链接平台，请手动选择")
+
+            # 2. 调用对应采集器
+            task_manager.update(task_id, status="running", progress=30, message=f"正在采集 {platform} 内容...")
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "running", "progress": 30, "message": f"正在采集 {platform} 内容..."})
+
+            config = load_config()
+            if platform == "xiaohongshu":
+                collector = XiaohongshuCollector(
+                    cookie=config.get("sources", {}).get("xiaohongshu", {}).get("cookie"),
+                    xhs_token=config.get("sources", {}).get("xiaohongshu", {}).get("xhs_token"),
+                )
+            elif platform == "douyin":
+                collector = DouyinCollector(
+                    cookie=config.get("sources", {}).get("douyin", {}).get("cookie"),
+                    client_key=config.get("sources", {}).get("douyin", {}).get("client_key"),
+                )
+            else:
+                raise ValueError(f"不支持的平台: {platform}")
+
+            result = await collector.fetch_by_url(url)
+
+            # 3. 如果有视频，尝试 ASR（TODO: 集成 Whisper API）
+            if result.get("media_type") == "video" and result.get("metadata", {}).get("video_url"):
+                task_manager.update(task_id, status="running", progress=60, message="检测到视频，ASR 功能待集成...")
+                # TODO: 下载视频 → 调用 ASR API → 填充 transcribed_text
+                result["transcribed_text"] = ""  # 暂时为空
+
+            # 4. 保存到 article_store
+            article_data = {
+                "id": str(uuid.uuid4()),
+                "title": result.get("title", ""),
+                "content": result.get("content", ""),
+                "url": result.get("url", url),
+                "author": result.get("author", ""),
+                "published_at": result.get("published_at"),
+                "summary": result.get("summary", ""),
+                "tags": result.get("tags", []),
+                "source": result.get("source", platform),
+                "media_type": result.get("media_type", "text"),
+                "original_text": result.get("original_text", ""),
+                "transcribed_text": result.get("transcribed_text", ""),
+                "created_at": datetime.now().isoformat(),
+                "metadata": result.get("metadata", {}),
+            }
+            article_store.add(article_data)
+
+            task_manager.update(task_id, status="done", progress=100,
+                              message=f"✅ 采集成功: {result.get('title', '')[:30]}",
+                              result={"article_id": article_data["id"], "platform": platform})
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "done", "progress": 100, "message": "✅ 采集成功"})
+
+        except Exception as e:
+            error_msg = f"采集失败: {e}"
+            logger.error(error_msg)
+            task_manager.update(task_id, status="error", message=error_msg)
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "error", "message": error_msg})
+
+    asyncio.create_task(run_task())
+    return JSONResponse({"task_id": task_id, "status": "started"})
+
+
 @app.post("/api/rewrite")
 async def api_rewrite(article_id: str = Form(...), strategy: str = Form(default="REWRITE"),
-                         translate: str = Form(default="no")):
+                         translate: str = Form(default="no"), industry: str = Form(default="")):
     """改写已有文章（带进度反馈）"""
     article = article_store.get_by_id(article_id)
     if not article:
@@ -683,6 +895,7 @@ async def api_rewrite(article_id: str = Form(...), strategy: str = Form(default=
                 config = RewriteConfig(
                     strategy=cfg_strategy,
                     translate_to="zh" if translate == "yes" else None,
+                    industry=industry.strip() if industry else None,
                 )
                 # 调用改写，并传递进度回调
                 result = await processor.rewrite(content, config, progress_callback=progress_callback)
@@ -716,6 +929,95 @@ async def api_rewrite(article_id: str = Form(...), strategy: str = Form(default=
 
     asyncio.create_task(run_task())
     return JSONResponse({"task_id": task_id, "status": "started"})
+
+
+# ========================================================================
+# 策略管理 API
+# ========================================================================
+
+BUILTIN_STRATEGIES = [
+    {"id": "REWRITE", "name": "\u6df1\u5ea6\u6539\u5199", "description": "\u5168\u9762\u6539\u5199\u6587\u7ae0\u5185\u5bb9\u548c\u7ed3\u6784\uff0c\u4fdd\u6301\u6838\u5fc3\u4fe1\u606f", "is_builtin": True},
+    {"id": "PARAPHRASE", "name": "\u540c\u4e49\u6539\u5199", "description": "\u7528\u4e0d\u540c\u8868\u8fbe\u91cd\u5199\u539f\u6587\uff0c\u4fdd\u6301\u539f\u610f", "is_builtin": True},
+    {"id": "STYLE_TRANSFER", "name": "\u98ce\u683c\u8f6c\u6362", "description": "\u5c06\u6587\u7ae0\u8f6c\u6362\u4e3a\u4e0d\u540c\u98ce\u683c\uff08\u5982\u5b66\u672f\u3001\u53e3\u8bed\u7b49\uff09", "is_builtin": True},
+    {"id": "SUMMARIZE", "name": "\u6458\u8981\u7cbe\u7b80", "description": "\u63d0\u70bc\u6587\u7ae0\u6838\u5fc3\u89c2\u70b9\uff0c\u751f\u6210\u7b80\u6d01\u6458\u8981", "is_builtin": True},
+    {"id": "EXPAND", "name": "\u6269\u5c55\u5199\u4f5c", "description": "\u5728\u539f\u6587\u57fa\u7840\u4e0a\u6269\u5c55\u5185\u5bb9\uff0c\u589e\u52a0\u7ec6\u8282\u548c\u4e3e\u4f8b", "is_builtin": True},
+    {"id": "FORMAL", "name": "\u6b63\u5f0f\u4e13\u4e1a", "description": "\u5c06\u6587\u7ae0\u6539\u5199\u4e3a\u6b63\u5f0f\u3001\u4e13\u4e1a\u7684\u8868\u8fbe\u98ce\u683c", "is_builtin": True},
+]
+
+
+@app.get("/api/rewrite-strategies")
+async def api_get_strategies():
+    """\u83b7\u53d6\u7b56\u7565\u5217\u8868\uff08\u5185\u7f6e + \u81ea\u5b9a\u4e49\uff09"""
+    custom = strategy_store.get_all()
+    # \u6807\u8bb0\u81ea\u5b9a\u4e49\u7b56\u7565
+    for s in custom:
+        s["is_builtin"] = False
+    default_strategy = strategy_store.get_default()
+    default_id = default_strategy["id"] if default_strategy else None
+    return JSONResponse({
+        "success": True,
+        "builtin": BUILTIN_STRATEGIES,
+        "custom": custom,
+        "default_id": default_id,
+    })
+
+
+@app.post("/api/rewrite-strategies")
+async def api_create_strategy(request: Request):
+    """\u65b0\u5efa\u81ea\u5b9a\u4e49\u7b56\u7565"""
+    data = await request.json()
+    name = data.get("name", "").strip()
+    description = data.get("description", "").strip()
+    is_default = data.get("is_default", False)
+
+    if not name or not description:
+        return JSONResponse({"success": False, "error": "\u540d\u79f0\u548c\u63cf\u8ff0\u4e0d\u80fd\u4e3a\u7a7a"}, status_code=400)
+
+    try:
+        strategy = strategy_store.create(name=name, description=description, is_default=is_default)
+        return JSONResponse({"success": True, "strategy": strategy})
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+@app.patch("/api/rewrite-strategies/{strategy_id}")
+async def api_update_strategy(strategy_id: str, request: Request):
+    """\u66f4\u65b0\u7b56\u7565"""
+    data = await request.json()
+    try:
+        result = strategy_store.update(
+            strategy_id=strategy_id,
+            name=data.get("name"),
+            description=data.get("description"),
+            is_default=data.get("is_default"),
+        )
+        if result is None:
+            return JSONResponse({"success": False, "error": "\u7b56\u7565\u4e0d\u5b58\u5728"}, status_code=404)
+        return JSONResponse({"success": True, "strategy": result})
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+@app.delete("/api/rewrite-strategies/{strategy_id}")
+async def api_delete_strategy(strategy_id: str):
+    """\u5220\u9664\u7b56\u7565"""
+    try:
+        deleted = strategy_store.delete(strategy_id)
+        if not deleted:
+            return JSONResponse({"success": False, "error": "\u7b56\u7565\u4e0d\u5b58\u5728"}, status_code=404)
+        return JSONResponse({"success": True})
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/rewrite-strategies", response_class=HTMLResponse)
+async def page_rewrite_strategies(request: Request):
+    """\u7b56\u7565\u7ba1\u7406\u9875\u9762"""
+    return render_template("rewrite-strategies.html", {
+        "request": request,
+    })
 
 
 @app.post("/api/compose")
@@ -1192,3 +1494,169 @@ def _save_schedules_to_config(jobs: list[dict]) -> None:
     CONFIG.setdefault("scheduler", {})
     CONFIG["scheduler"]["jobs"] = jobs
     save_config(CONFIG)
+
+
+# ========================================================================
+# 模型管理 API （多模型支持）
+# ========================================================================
+
+def _migrate_config_models(config: dict) -> dict:
+    """将旧版 config 迁移到新版多模型结构"""
+    llm = config.setdefault("llm", {})
+    if "base_url" in llm and "models" not in llm:
+        old_model_id = llm.get("model", "default")
+        llm["models"] = [{
+            "id": "default",
+            "name": "默认模型",
+            "base_url": llm.get("base_url", "http://127.0.0.1:19000/proxy/llm"),
+            "api_key": llm.get("api_key", ""),
+            "model_id": old_model_id,
+            "is_default": True,
+        }]
+        llm["default_model_id"] = "default"
+        llm.pop("base_url", None)
+        llm.pop("model", None)
+        llm.pop("api_key", None)
+    elif "models" not in llm:
+        llm["models"] = [{
+            "id": "default", "name": "默认模型",
+            "base_url": "http://127.0.0.1:19000/proxy/llm",
+            "api_key": "", "model_id": "qclaw/pool-hy3-preview",
+            "is_default": True,
+        }]
+        llm["default_model_id"] = "default"
+
+    asr = config.setdefault("asr", {})
+    if "api_endpoint" in asr and "models" not in asr:
+        asr["models"] = [{
+            "id": "default", "name": "默认ASR",
+            "base_url": asr.get("api_endpoint", ""),
+            "api_key": asr.get("api_key", ""),
+            "model_id": "whisper-1", "is_default": True,
+        }]
+        asr["default_model_id"] = "default"
+        asr.pop("api_endpoint", None)
+        asr.pop("api_key", None)
+    elif "models" not in asr:
+        asr["models"] = []
+    return config
+
+
+@app.get("/api/models/{model_type}")
+async def api_get_models(model_type: str):
+    """获取某类型的所有模型列表"""
+    if model_type not in ("llm", "asr"):
+        raise HTTPException(status_code=400, detail="不支持的模型类型")
+    config = _migrate_config_models(load_config())
+    models = config.get(model_type, {}).get("models", [])
+    default_id = config.get(model_type, {}).get("default_model_id", "")
+    return {"models": models, "default_model_id": default_id}
+
+
+@app.post("/api/models/{model_type}")
+async def api_add_model(model_type: str, request: Request):
+    """新增模型"""
+    if model_type not in ("llm", "asr"):
+        raise HTTPException(status_code=400, detail="不支持的模型类型")
+    data = await request.json()
+    name = data.get("name", "").strip()
+    base_url = data.get("base_url", "").strip()
+    api_key = data.get("api_key", "").strip()
+    model_id = data.get("model_id", "").strip()
+    if not name or not base_url or not model_id:
+        raise HTTPException(status_code=400, detail="名称、API 端点、模型 ID 不能为空")
+    if not base_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="API 端点必须以 http:// 或 https:// 开头")
+    config = _migrate_config_models(load_config())
+    models = config.setdefault(model_type, {}).setdefault("models", [])
+    new_id = name.lower().replace(" ", "-").replace("_", "-")
+    # 过滤非 ASCII 字符，确保 URL 安全
+    import re
+    clean_id = re.sub(r'[^a-z0-9-]', '', new_id)
+    if not clean_id or len(clean_id) < 2:
+        import uuid
+        clean_id = "model-" + uuid.uuid4().hex[:8]
+    new_id = clean_id
+    existing_ids = {m["id"] for m in models}
+    if new_id in existing_ids:
+        suffix = 2
+        while f"{new_id}-{suffix}" in existing_ids:
+            suffix += 1
+        new_id = f"{new_id}-{suffix}"
+    new_model = {
+        "id": new_id, "name": name,
+        "base_url": base_url, "api_key": api_key,
+        "model_id": model_id, "is_default": len(models) == 0,
+    }
+    models.append(new_model)
+    if new_model["is_default"]:
+        config[model_type]["default_model_id"] = new_id
+    save_config(config)
+    logger.info(f"[模型] 新增 {model_type}: {name} (id: {new_id})")
+    return {"status": "success", "model": new_model}
+
+
+@app.put("/api/models/{model_type}/{model_id}")
+async def api_update_model(model_type: str, model_id: str, request: Request):
+    """修改模型"""
+    if model_type not in ("llm", "asr"):
+        raise HTTPException(status_code=400, detail="不支持的模型类型")
+    data = await request.json()
+    config = _migrate_config_models(load_config())
+    models = config.setdefault(model_type, {}).setdefault("models", [])
+    target = next((m for m in models if m["id"] == model_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail=f"模型 '{model_id}' 不存在")
+    if "name" in data:
+        target["name"] = data["name"].strip()
+    if "base_url" in data:
+        url = data["base_url"].strip()
+        if url and not url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="API 端点必须以 http:// 或 https:// 开头")
+        target["base_url"] = url
+    if "api_key" in data:
+        target["api_key"] = data["api_key"].strip()
+    if "model_id" in data:
+        val = data["model_id"].strip()
+        if not val:
+            raise HTTPException(status_code=400, detail="模型 ID 不能为空")
+        target["model_id"] = val
+    save_config(config)
+    return {"status": "success", "model": target}
+
+
+@app.delete("/api/models/{model_type}/{model_id}")
+async def api_delete_model(model_type: str, model_id: str):
+    """删除模型"""
+    if model_type not in ("llm", "asr"):
+        raise HTTPException(status_code=400, detail="不支持的模型类型")
+    config = _migrate_config_models(load_config())
+    models = config.setdefault(model_type, {}).setdefault("models", [])
+    if len(models) <= 1:
+        raise HTTPException(status_code=400, detail="至少需要保留一个模型")
+    idx = next((i for i, m in enumerate(models) if m["id"] == model_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail=f"模型 '{model_id}' 不存在")
+    removed = models.pop(idx)
+    if config[model_type].get("default_model_id") == model_id:
+        models[0]["is_default"] = True
+        config[model_type]["default_model_id"] = models[0]["id"]
+    save_config(config)
+    return {"status": "success", "message": f"已删除模型 '{removed['name']}'"}
+
+
+@app.post("/api/models/{model_type}/{model_id}/default")
+async def api_set_default_model(model_type: str, model_id: str):
+    """设置默认模型"""
+    if model_type not in ("llm", "asr"):
+        raise HTTPException(status_code=400, detail="不支持的模型类型")
+    config = _migrate_config_models(load_config())
+    models = config.setdefault(model_type, {}).setdefault("models", [])
+    found = any(m["id"] == model_id for m in models)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"模型 '{model_id}' 不存在")
+    for m in models:
+        m["is_default"] = (m["id"] == model_id)
+    config[model_type]["default_model_id"] = model_id
+    save_config(config)
+    return {"status": "success", "message": "默认模型已更新"}

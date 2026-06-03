@@ -44,23 +44,48 @@ class LLMClient:
         client = LLMClient(config)
         result = await client.call("写一篇文章关于...")
         print(result["content"])
+    
+    config 支持两种格式：
+    1. 旧版扁平格式：{"provider": ..., "api_key": ..., "model": ..., "base_url": ...}
+    2. 新版多模型格式：{"models": [...], "default_model_id": "..."}（自动提取默认模型）
     """
+
+    @staticmethod
+    def _normalize_config(config: dict) -> dict:
+        """将新旧两种配置格式统一为扁平格式"""
+        if "models" in config and isinstance(config["models"], list):
+            # 新版多模型格式 - 提取默认模型
+            models = config["models"]
+            default_id = config.get("default_model_id", "")
+            # 找默认模型
+            model_cfg = next(
+                (m for m in models if m.get("id") == default_id or m.get("is_default")),
+                models[0] if models else None
+            )
+            if model_cfg:
+                return {
+                    "provider": config.get("provider", "openai"),
+                    "api_key": model_cfg.get("api_key", ""),
+                    "model": model_cfg.get("model_id", ""),
+                    "base_url": model_cfg.get("base_url", ""),
+                    "max_tokens": config.get("max_tokens", 4096),
+                    "temperature": config.get("temperature", 0.7),
+                    "retry": config.get("retry", 3),
+                    "timeout": config.get("timeout", 120),
+                }
+        # 旧版扁平格式或空配置 - 原样返回
+        return config
 
     def __init__(self, config: dict[str, Any]):
         """
         初始化 LLM 客户端
         
         Args:
-            config: LLM 配置字典，包含：
-                - provider: 提供商名称 (deepseek/openai/qwen/custom)
-                - api_key: API 密钥
-                - model: 模型名称
-                - base_url: API 基础 URL (可选)
-                - max_tokens: 最大 token 数 (默认 4096)
-                - temperature: 温度参数 (默认 0.7)
-                - retry: 重试次数 (默认 3)
-                - timeout: 超时时间秒 (默认 120)
+            config: LLM 配置字典。支持新旧两种格式（自动标准化）
         """
+        # 标准化配置（兼容新旧两种格式）
+        config = self._normalize_config(config)
+        
         self.provider = config.get("provider", "deepseek").lower()
         self.api_key = config.get("api_key", "")
         self.model = config.get("model", "deepseek-chat")
@@ -180,7 +205,11 @@ class LLMClient:
                 
                 if response.status_code == 200:
                     result = response.json()
-                    content = result["choices"][0]["message"]["content"]
+                    message = result["choices"][0]["message"]
+                    # 兼容不同模型返回格式：
+                    # - 普通模型：message.content
+                    # - 推理模型（如 sensenova-6.7-flash-lite）：message.reasoning 或 message.reasoning_content
+                    content = message.get("content") or message.get("reasoning") or message.get("reasoning_content", "")
                     usage = result.get("usage", {})
                     
                     logger.info(f"[_call_openai_compatible] SUCCESS: got {len(content)} chars, usage={usage}")
@@ -256,82 +285,81 @@ class LLMClient:
 # ============================
 # 扩展指南
 # ============================
-"""
-如何添加新的 LLM provider 支持：
-
-1. 在 LLMClient 类中添加新的 `_call_xxx()` 方法：
-    ```python
-    async def _call_ernie(self, prompt: str) -> dict:
-        # 1. 获取 access_token（百度 ERNIE 需要）
-        token_url = "https://aip.baidu.com/oauth/2.0/token"
-        token_response = await self.client.post(token_url, ...)
-        access_token = token_response.json()["access_token"]
-        
-        # 2. 调用 ERNIE API
-        url = f"https://aip.baidu.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/{self.model}?access_token={access_token}"
-        payload = {
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": self.temperature,
-        }
-        response = await self.client.post(url, json=payload)
-        result = response.json()
-        
-        # 3. 返回统一格式
-        return {
-            "content": result["result"],
-            "usage": {...}
-        }
-    ``
-
-2. 在 `call()` 方法中添加路由：
-    ```python
-    async def call(self, prompt: str) -> dict:
-        if self.provider in ["deepseek", "openai", "qwen"]:
-            return await self._call_openai_compatible(prompt)
-        elif self.provider == "ernie":
-            return await self._call_ernie(prompt)  # 新增
-        ...
-    ``
-
-3. 更新配置文件示例（`config.yaml`）：
-    ```yaml
-    llm:
-      provider: "ernie"  # 新增 provider
-      model: "ernie-4.0-turbo-8k"
-      api_key: "your-client-id"
-      api_secret: "your-client-secret"  # ERNIE 需要 secret
-      base_url: "https://aip.baidu.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat"
-    ```
-
-4. 如果 provider 需要额外参数（如 ERNIE 的 `api_secret`），在 `__init__()` 中添加：
-    ```python
-    self.api_secret = config.get("api_secret", "")
-    ```
+# 如何添加新的 LLM provider 支持：
+# 
+# 1. 在 LLMClient 类中添加新的 `_call_xxx()` 方法：
+#     ```python
+#     async def _call_ernie(self, prompt: str) -> dict:
+#         # 1. 获取 access_token（百度 ERNIE 需要）
+#         token_url = "https://aip.baidu.com/oauth/2.0/token"
+#         token_response = await self.client.post(token_url, ...)
+#         access_token = token_response.json()["access_token"]
+#         
+#         # 2. 调用 ERNIE API
+#         url = f"https://aip.baidu.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat/{self.model}?access_token={access_token}"
+#         payload = {
+#             "messages": [{"role": "user", "content": prompt}],
+#             "temperature": self.temperature,
+#         }
+#         response = await self.client.post(url, json=payload)
+#         result = response.json()
+#         
+#         # 3. 返回统一格式
+#         return {
+#             "content": result["result"],
+#             "usage": {...}
+#         }
+#     ``
+# 
+# 2. 在 `call()` 方法中添加路由：
+#     ```python
+#     async def call(self, prompt: str) -> dict:
+#         if self.provider in ["deepseek", "openai", "qwen"]:
+#             return await self._call_openai_compatible(prompt)
+#         elif self.provider == "ernie":
+#             return await self._call_ernie(prompt)  # 新增
+#         ...
+#     ``
+# 
+# 3. 更新配置文件示例（`config.yaml`）：
+#     ```yaml
+#     llm:
+#       provider: "ernie"  # 新增 provider
+#       model: "ernie-4.0-turbo-8k"
+#       api_key: "your-client-id"
+#       api_secret: "your-client-secret"  # ERNIE 需要 secret
+#       base_url: "https://aip.baidu.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat"
+#     ```
+# 
+# 4. 如果 provider 需要额外参数（如 ERNIE 的 `api_secret`），在 `__init__()` 中添加：
+#     ```python
+#     self.api_secret = config.get("api_secret", "")
+#     ```
 
 # ============================
 # 测试代码
 # ============================
-if __name__ == "__main__":
-    import asyncio
-    
-    async def test():
-        # 测试配置
-        config = {
-            "provider": "deepseek",
-            "api_key": "sk-test-key",
-            "model": "deepseek-chat",
-            "base_url": "https://api.deepseek.com",
-            "max_tokens": 1024,
-            "temperature": 0.7,
-        }
-        
-        client = LLMClient(config)
-        
-        try:
-            result = await client.call("用一句话介绍 Python")
-            print("Content:", result["content"])
-            print("Usage:", result["usage"])
-        finally:
-            await client.close()
-    
-    asyncio.run(test())
+# if __name__ == "__main__":
+#     import asyncio
+#     
+#     async def test():
+#         # 测试配置
+#         config = {
+#             "provider": "deepseek",
+#             "api_key": "sk-test-key",
+#             "model": "deepseek-chat",
+#             "base_url": "https://api.deepseek.com",
+#             "max_tokens": 1024,
+#             "temperature": 0.7,
+#         }
+#         
+#         client = LLMClient(config)
+#         
+#         try:
+#             result = await client.call("用一句话介绍 Python")
+#             print("Content:", result["content"])
+#             print("Usage:", result["usage"])
+#         finally:
+#             await client.close()
+#     
+#     asyncio.run(test())

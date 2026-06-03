@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.venv/
 
 # IDE
 .vscode/
@@ -17,5 +18,25 @@ output/
 # Environment
 .env
 
-# Config with secrets
-config/config.yamldata/dedup_cache.json
+# Runtime cache
+data/dedup_cache.json
+
+# Temporary/debug scripts
+debug_*.py
+add_strategy_api.py
+custom_providers.py
+
+# Server stderr/stdout
+server_*.txt
+uvicorn_*.txt
+startup_*.txt
+
+# Backups
+*.backup
+
+# Lock files
+PROJECT-001.lock
+
+# Example code
+examples/
+tools/

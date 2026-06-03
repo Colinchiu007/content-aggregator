@@ -19,18 +19,20 @@
             <textarea class="form-textarea" name="content" id="compose-content" placeholder="粘贴或输入文章内容..." required style="min-height:200px"></textarea>
         </div>
 
-        <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap">
-            <div class="form-group" style="margin:0">
-                <label class="form-label">处理方式</label>
-                <select class="form-select" name="action" id="compose-action" onchange="toggleRewrite()">
+        <div style="display:grid;grid-template-columns:1fr 1fr 2fr 1fr 1fr auto;gap:16px;align-items:end;margin-top:20px;padding:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)">
+            <!-- 处理方式 -->
+            <div style="display:flex;flex-direction:column;gap:8px">
+                <label class="form-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600">处理方式</label>
+                <select class="form-select" name="action" id="compose-action" onchange="toggleRewrite()" style="width:100%;padding:10px 12px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:14px;cursor:pointer;transition:all 0.2s ease">
                     <option value="export">直接导出</option>
                     <option value="rewrite" selected>AI 改写后导出</option>
                 </select>
             </div>
 
-            <div class="form-group" style="margin:0" id="rewrite-option">
-                <label class="form-label">改写策略</label>
-                <select class="form-select" name="strategy">
+            <!-- 改写策略 -->
+            <div style="display:flex;flex-direction:column;gap:8px">
+                <label class="form-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600">改写策略</label>
+                <select class="form-select" name="strategy" id="strategy-select" style="width:100%;padding:10px 12px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:14px;cursor:pointer;transition:all 0.2s ease">
                     <option value="REWRITE" selected>深度改写</option>
                     <option value="PARAPHRASE">伪原创</option>
                     <option value="STYLE_TRANSFER">风格转换</option>
@@ -39,17 +41,28 @@
                 </select>
             </div>
 
-            <div class="form-group" style="margin:0">
-                <label class="form-label">翻译选项</label>
-                <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
-                    <input type="checkbox" id="compose-translate" name="translate" value="yes" style="accent-color:var(--primary)">
-                    <label for="compose-translate" style="margin:0;font-size:14px;color:var(--text-muted);cursor:pointer">英文先翻译成中文再改写</label>
+            <!-- 目标行业 -->
+            <div style="display:flex;flex-direction:column;gap:8px">
+                <label class="form-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600">
+                    目标行业（可选）
+                    <span style="font-size:11px;text-transform:none;letter-spacing:0.3px;margin-left:8px;color:var(--primary);font-weight:normal">按行业语境改写</span>
+                </label>
+                <input class="form-input" name="industry" placeholder="如：美妆、金融科技、医疗..." style="width:100%;padding:10px 14px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:14px;transition:all 0.2s ease">
+            </div>
+
+            <!-- 翻译选项 -->
+            <div style="display:flex;flex-direction:column;gap:8px">
+                <label class="form-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600">翻译选项</label>
+                <div style="display:flex;align-items:center;gap:10px;padding:10px 0">
+                    <input type="checkbox" id="compose-translate" name="translate" value="yes" style="accent-color:var(--primary);width:20px;height:20px;cursor:pointer">
+                    <label for="compose-translate" style="margin:0;font-size:13px;color:var(--text-muted);cursor:pointer;white-space:nowrap">英文先翻译成中文</label>
                 </div>
             </div>
 
-            <div class="form-group" style="margin:0">
-                <label class="form-label">导出格式</label>
-                <select class="form-select" name="format_type">
+            <!-- 导出格式 -->
+            <div style="display:flex;flex-direction:column;gap:8px">
+                <label class="form-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600">导出格式</label>
+                <select class="form-select" name="format_type" style="width:100%;padding:10px 12px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:14px;cursor:pointer;transition:all 0.2s ease">
                     <option value="markdown">Markdown</option>
                     <option value="html">HTML</option>
                     <option value="json">JSON</option>
@@ -58,9 +71,13 @@
                 </select>
             </div>
 
-            <button type="submit" class="btn btn-primary" style="margin-top:0">
-                🚀 处理
-            </button>
+            <!-- 处理按钮 -->
+            <div style="display:flex;flex-direction:column;gap:8px;justify-content:flex-end">
+                <div style="height:21px"></div> <!-- label spacer -->
+                <button type="submit" class="btn btn-primary" style="width:100%;padding:10px 24px;font-weight:600;font-size:14px;letter-spacing:0.5px;border-radius:6px;transition:all 0.3s ease;box-shadow:0 4px 16px rgba(59,130,246,0.4);cursor:pointer">
+                    🚀 处理
+                </button>
+            </div>
         </div>
     </form>
 </div>
@@ -112,8 +129,61 @@
         'PARAPHRASE': '伪原创',
         'STYLE_TRANSFER': '风格转换',
         'SUMMARIZE': '摘要',
-        'EXPAND': '扩写'
+        'EXPAND': '扩写',
+        'FORMAL': '正式专业'
     };
+
+    // 动态加载策略下拉框（内置 + 自定义）
+    async function loadStrategyOptions() {
+        try {
+            const res = await fetch('/api/rewrite-strategies');
+            const data = await res.json();
+            if (!data.success) return;
+
+            const select = document.getElementById('strategy-select');
+            if (!select) return;
+
+            // 清空现有选项
+            select.innerHTML = '';
+
+            // 内置策略 optgroup
+            if (data.builtin && data.builtin.length) {
+                const builtinGroup = document.createElement('optgroup');
+                builtinGroup.label = '内置策略';
+                data.builtin.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id;
+                    opt.textContent = s.name;
+                    builtinGroup.appendChild(opt);
+                });
+                select.appendChild(builtinGroup);
+            }
+
+            // 自定义策略 optgroup
+            if (data.custom && data.custom.length) {
+                const customGroup = document.createElement('optgroup');
+                customGroup.label = '自定义策略';
+                data.custom.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = 'custom:' + s.id;
+                    opt.textContent = s.name + (s.is_default ? ' (默认)' : '');
+                    if (s.is_default) opt.selected = true;
+                    customGroup.appendChild(opt);
+                });
+                select.appendChild(customGroup);
+            }
+
+            // 如果没有选中项，选中第一个
+            if (!select.value && select.options.length) {
+                select.selectedIndex = 0;
+            }
+        } catch (e) {
+            console.error('Failed to load strategies:', e);
+        }
+    }
+
+    // 页面加载时立即加载策略
+    loadStrategyOptions();
 
     function toggleRewrite() {
         // currently no special UI toggle needed, form submits different action

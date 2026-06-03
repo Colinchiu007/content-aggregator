@@ -284,34 +284,32 @@ Output only the translated text.
 # ============================
 # 扩展指南
 # ============================
-"""
-如何为 TranslatorProcessor 添加新的目标语言支持：
-
-1. 在 `TranslationLanguage` 枚举中添加新语言：
-    ```python
-    THAI = "th"  # 泰语
-    ```
-
-2. 在 `TRANSLATION_PROMPTS` 字典中添加该语言的提示词：
-    ```python
-    TranslationLanguage.THAI: """... Thai translation prompt ..."""
-    ```
-
-3. 更新配置文件示例（`config.yaml`）：
-    ```yaml
-    translate:
-      target_language: "th"  # 泰语
-      tone: "casual"
-      preserve_formatting: true
-    ```
-
-4. 如果需要使用特定 LLM provider（如 ERNIE 对中文→泰语效果更好），
-   在 `config.yaml` 中指定 provider：
-    ```yaml
-    llm:
-      provider: "ernie"  # 使用文心一言进行翻译
-      model: "ernie-4.0-turbo-8k"
-      api_key: "your-client-id"
-      api_secret: "your-client-secret"
-    ```
-"""
+# 如何为 TranslatorProcessor 添加新的目标语言支持：
+#
+# 1. 在 `TranslationLanguage` 枚举中添加新语言：
+#    ```python
+#    THAI = "th"  # 泰语
+#    ```
+#
+# 2. 在 `TRANSLATION_PROMPTS` 字典中添加该语言的提示词：
+#    ```python
+#    TranslationLanguage.THAI: """... Thai translation prompt ..."""
+#    ```
+#
+# 3. 更新配置文件示例（`config.yaml`）：
+#    ```yaml
+#    translate:
+#      target_language: "th"  # 泰语
+#      tone: "casual"
+#      preserve_formatting: true
+#    ```
+#
+# 4. 如果需要使用特定 LLM provider（如 ERNIE 对中文→泰语效果更好），
+#   在 `config.yaml` 中指定 provider：
+#    ```yaml
+#    llm:
+#      provider: "ernie"  # 使用文心一言进行翻译
+#      model: "ernie-4.0-turbo-8k"
+#      api_key: "your-client-id"
+#      api_secret: "your-client-secret"
+#    ```

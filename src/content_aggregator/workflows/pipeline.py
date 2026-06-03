@@ -443,6 +443,11 @@ class ContentPipeline:
                         proxy=self.proxy,
                         timeout=self.http_config.get("timeout", 30),
                     )
+                    
+                    # Fix: Inject limit_per_source into collect_kwargs (use max_results to be consistent)
+                    if limit_per_source:
+                        collect_kwargs['max_results'] = limit_per_source
+                    
                     result: SourceResult = await collector.collect(**collect_kwargs)
                     logger.info(f'[process_source] {entry_name}: success={result.success}, collected={result.collected_count}, data_len={len(result.data) if result.data else 0}')
 
@@ -712,6 +717,11 @@ class ContentPipeline:
                 collect_kwargs = {k: v for k, v in entry.items() if k != 'name'}
                 if 'max_items' in collect_kwargs:
                     collect_kwargs['max_results'] = collect_kwargs.pop('max_items')
+                
+                # Fix: Inject limit_per_source into collect_kwargs for process_contents()
+                if limit_per_source:
+                    collect_kwargs['max_results'] = limit_per_source
+                
                 result: SourceResult = await collector.collect(**collect_kwargs)
                 logger.info(f'[process_source] {entry_name}: success={result.success}, collected={result.collected_count}, data_len={len(result.data) if result.data else 0}')
 
