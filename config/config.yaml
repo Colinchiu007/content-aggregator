@@ -9,22 +9,22 @@ llm:
   - id: ????
     name: ????
     base_url: https://api.test.com
-    api_key: enc:Z0FBQUFBQnFILWJNRzBpLTN1dXItRUNxaThldzAwcHhuT0lVeS0tZTFKRG5KbnliNnhVd2tDZUtLU0l6REhoZ0pHaUlCTDU4NmVzSmdPR3dLNXRLX0dueGt6OFA4aGYyUVVkcmg0OVJjLXp5U2ZOV1BpLUxiRkE9
+    api_key: enc:Z0FBQUFBQnFJQ1pNYXpsdW1Zd0N4enhFTFJGSE9XZWtRWFNSQjM5RFA5Z3BIbXNRdkgzazEtZHgtbVNxUDI1dXhTMWROTW5KOWRLc3Vpc29FOGdsUDFDWVlCVm1wclFqUk1WWTJfRWtoUXFuQ0xncmc5SmVvNmxGbExOSDFVM0tZMjhfVjJKLVQtTlB6WC1HN2h0OXFCdHlQMTY5a210ZEVPVTBad0hlLXVpT1MyQWNfbmE0YUxHU2xBY2VZdGRaaHpQWHBTdHBHeHIzYjd2dEl3YlplWUpfN3BBZXRUUjFFU2w1YzZnbFExUkd3WUM3WEN3eVZWS045bHRmV3E4UFVFYVowaXk1S3cxYnZEQ0VLNDBHZEpEY2NwRzJfVEFRT0VOM29uRTBwU003M0VhMW5VdTRNYU09
     model_id: test-model-1
     is_default: false
   - id: ????-2
     name: sensenova.cn
     base_url: https://token.sensenova.cn/v1
-    api_key: enc:Z0FBQUFBQnFILWJNNGlta2U4ak96aXFMcGMtd0FlUWdsZlRtWW8zWmJEcWJucEJHbVhwR3V6MURYdVd6UF83V0RqLWhMRDRhUnk1UmJ2QVA4RGRIX0w2UEhuQ0lEcFVLMVF3RkVLQmxETlFEUzU2VFR1eFo1emNXNUdZTnU1N0FoeTd1enhmOHcydEY=
+    api_key: enc:Z0FBQUFBQnFJQ1pNaGJ3U0ZOYjRRNkhRbnplamlEMlJEQjNTUFF6SUFFY1FkeXdOS0dWdm1GYVhGRkZ1RFdfZUJMcjg4YWlFSFg1R2NVYnBuNzJtNFp0LVNEUENoTGp5bm9ZRFlLaUI2SVF2Q2tnUGxud1dYVURKZWg2VndwbG5xRUNFZTVWa2lES29qNjlMOFB6VDFQdmRmMEcxaXY4SGp0UFpnRm9FekVVNG9Md0xrRWxwdUJYakkySGMtQjZjXzFEd1pIVFBiU190U2ZQQl9XNW5qcHJ0WUtHM3AxQVF5MDRldGFVcnNETmluOTlTQWdLa28zb1V3UXJJN1hpWGRMM3NyLXo5WUcwU1VQYnZiUGp4Vk1nMTM4SnpvUkN5MWhBU3BoNHE4Vy16N3FXS1ZGZU1YelZtM2N2dWFDaGVCaGRnWTJ4ay1yNzM0Y190dU9MV1c3eG4xbnlKVFFobVBRPT0=
     model_id: deepseek-v4-flash
-    is_default: false
+    is_default: true
   - id: sensenova-67-flash-lite
     name: sensenova-6.7-flash-lite
     base_url: https://token.sensenova.cn/v1
-    api_key: enc:Z0FBQUFBQnFILWJNTDI2NUx0bzhvLTRSUzVxWkFZYTNxVGFCUGk5TnR1d09sc0FPekN0OUVVZTU0X0IzeTV0Y3loSFR4RTZYM3BBR2VxMkJtNjhmSmpkcUwwZTJJb1U0V1ZWdWs4cDh0NEhQZk9rbHNKMXEwbVhMZEVReWlEYlpwb3RVUU1sT18tZzY=
+    api_key: enc:Z0FBQUFBQnFJQ1pNTTVWUHRsQ1pRQVNLTHczTEMtbDRPaEpMSlNmYVVBX1dlcHZPdG14ZTdvUW9PSEpaRHMyWTkybDVQaXJLQ2t2V0RPcW5wODY2ekdNQ2RLQ1Rra0xMZlpEVzBkZkZaWXE5YmN5bjV1aDlVcTZuUUhjbExNTVZwOGdsMnh1Sm41aEtXeVN0N0hpbVZZS3g4anVMRl81TEQxZnlNYXlER0xPQVNmVnA0QXVwdldLU1o3OHVzcVBrSjFtNnY0OUhleWhhNHZPeGh1WlhCQzdZcV9CYk5zTTZKS0lqTjBpUGpBTmhRRF9HQ1YtRnNIQ0dud01IcFZVODJTQ3E1a1VTQjRVZ3l6czUyVF9wamFoWGVBYnMyXzJhU0dhOUU0dkJ4bjQ3UV9Tb0J6TnB1ZHREWm5zY1pnR3lVb2VuNjRlUm9rZWgtY284TE1TWlUxbzV6M0JVWTQ2LW9nPT0=
     model_id: sensenova-6.7-flash-lite
-    is_default: true
-  default_model_id: sensenova-67-flash-lite
+    is_default: false
+  default_model_id: ????-2
 http:
   timeout: 30
   max_retries: 3
@@ -41,14 +41,8 @@ sources:
   - name: 阮一峰网络日志
     url: http://feeds.feedburner.com/ruanyifeng
     enabled: false
-  - name: 科技爱好者周刊
-    url: https://github.com/ruanyf/weekly/commits.atom
-    enabled: false
   - name: 36氪
     url: https://rss.aishort.top/?type=36kr
-    enabled: false
-  - name: OpenAI
-    url: https://openai.com/news/rss.xml
     enabled: false
   - name: Google Deepmind
     url: https://deepmind.google/blog/rss.xml
@@ -57,7 +51,7 @@ sources:
     url: https://sspai.com/feed
     enabled: true
   youtube:
-    api_key: enc:Z0FBQUFBQnFILWJNZ0RrU1gzQ0JldXJSU05WeHJ0OXV2cmo5a3VxbmFNejZQanc1Ml9QeGdXWExrZHhRRFd2QWpZYXpaa09iV0JGTXZpeDBVN0tqQzhqZHVoZ29fTTBXbmx1Z2pPYXlEMXNheG1aalhwTGI5QUh6bDFWblRYTTFpeGlGUWFTNHo4XzE=
+    api_key: enc:Z0FBQUFBQnFJQ1pNSFUxMFBRWkhYR2wwQUwxNHRTS0VQZ3BBV295amxJZ01TcmN0R1M5Tnd6S0xtbWNRNndUVzFhbkFXUVBsZTZOUU9oR0RkZEVvVC1LTjFHd2dMYUhFVVZRVHdmZEZ3aUJlNk1kOHZxMXpnZGdSakFoWVc3MGJKLXlqa2ljc3lBeGtwc0F5NElvemdxbllfd1RwVjlnUmIzMF9sV05WZGVfcm1ZeXVwcC1odGJFZ1p6b0FCbGVsTVFxVDB6NlNFQllWRFZobGJSdVBCN0lrcGs2dWc0dE1wQlQ4aG8tZEUtUk03TjN2TUNXVzBZVFdoajl3UFJ4Z1FGYlZWN2s4VUZhZ2hXeUVKVmh1eE82WUs4VzhrQVNLdWhSMmQ2bkg3cHhfY3Y2VHpGZm1tdmd4ZWJtOTBXekdBUDZhd2dleWpqUkFFb2JDZm9tcUJvc2hRalNEcXA3VlRBPT0=
     channels:
     - UCtR5okwgTMghi_uyWvbloEg
     search_queries:
@@ -83,6 +77,24 @@ sources:
   wechat:
     api_key: null
     accounts: []
+  # 抖音热点榜（热榜，与 douyin 用户视频采集区分）
+  douyin_hot:
+    enabled: true
+    cookie: null
+    limit: 20
+    enable_anti_block: false
+  # 网易新闻
+  wangyi:
+    enabled: true
+    channels: ["news", "ent", "tech"]
+    limit: 10
+    enable_anti_block: false
+  # 微博热点（热搜榜）
+  weibo_hot:
+    enabled: true
+    limit: 30
+    include_detail: false
+    enable_anti_block: false
   sitemap:
     sites: []
   api:

@@ -363,8 +363,9 @@ async def page_index(request: Request):
     sources_config = CONFIG.get("sources", {})
     source_labels = {
         "rss": "RSS 订阅", "youtube": "YouTube", "twitter": "X (Twitter)",
-        "tiktok": "TikTok", "douyin": "抖音", "xiaohongshu": "小红书",
-        "wechat": "微信公众号", "sitemap": "Sitemap", "api": "自定义 API",
+        "tiktok": "TikTok", "douyin": "抖音", "douyin_hot": "抖音热点", "wangyi": "网易新闻",
+        "weibo_hot": "微博热点", "xiaohongshu": "小红书", "wechat": "微信公众号",
+        "sitemap": "Sitemap", "api": "自定义 API",
     }
     configured_count = 0  # 已配置（含启用+未启用）
     active_count = 0      # 活跃（当前启用的）
@@ -591,7 +592,7 @@ async def api_collect_all(
                                         "status": "running", "message": message, "progress": progress})
 
         try:
-            task_manager.update(task_id, status="running", message="正在初始化流水线...")
+            task_manager.update(task_id, status="running", message="🔧 初始化流水线...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
                                 "status": "running", "message": "正在初始化..."})
 
@@ -656,9 +657,9 @@ async def api_collect_youtube(
                                         "status": "running", "message": message, "progress": progress})
 
         try:
-            task_manager.update(task_id, status="running", message="正在采集 YouTube...")
+            task_manager.update(task_id, status="running", message="📡 正在采集 YouTube...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "running", "message": "正在采集 YouTube..."})
+                                "status": "running", "message": "📡 正在采集 YouTube..."})
 
             async with ContentPipeline(CONFIG) as pipeline:
                 # 只采集 YouTube 源
@@ -709,9 +710,9 @@ async def api_collect_url(
 
     async def run_task():
         try:
-            task_manager.update(task_id, status="running", message="正在采集...")
+            task_manager.update(task_id, status="running", message="📡 正在采集...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "running", "message": "正在采集..."})
+                                "status": "running", "message": "📡 正在采集..."})
 
             fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
             async with ContentPipeline(CONFIG) as pipeline:
@@ -777,9 +778,9 @@ async def api_collect_link(
     async def run_task():
         nonlocal platform  # 允许内部函数修改外部函数的 platform 参数
         try:
-            task_manager.update(task_id, status="running", message="正在识别平台...")
+            task_manager.update(task_id, status="running", message="🔍 正在识别平台...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "running", "message": "正在识别平台..."})
+                                "status": "running", "message": "🔍 正在识别平台..."})
 
             # 1. 平台识别
             if platform == "auto":
@@ -793,9 +794,9 @@ async def api_collect_link(
                     raise ValueError("无法识别链接平台，请手动选择")
 
             # 2. 调用对应采集器
-            task_manager.update(task_id, status="running", progress=30, message=f"正在采集 {platform} 内容...")
+            task_manager.update(task_id, status="running", progress=30, message=f"🔍 正在采集 {platform} 内容...")
             await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "running", "progress": 30, "message": f"正在采集 {platform} 内容..."})
+                                "status": "running", "progress": 30, "message": f"🔍 正在采集 {platform} 内容..."})
 
             config = load_config()
             if platform == "xiaohongshu":
@@ -816,13 +817,13 @@ async def api_collect_link(
             # 3. 如果有视频，尝试 ASR 转写
             if result.get("media_type") == "video" and result.get("metadata", {}).get("video_url"):
                 video_url = result["metadata"]["video_url"]
-                task_manager.update(task_id, status="running", progress=60, message=f"正在下载音频（{video_url[:40]}...）")
+                task_manager.update(task_id, status="running", progress=60, message=f"🎬 正在下载音频（{video_url[:40]}...）")
                 await broadcast_ws({
                     "type": "task_update",
                     "task_id": task_id,
                     "status": "running",
                     "progress": 60,
-                    "message": "正在下载音频...",
+                    "message": "🎬 正在下载音频...",
                 })
 
                 # 构建 ASR 配置（从系统设置读取）
@@ -926,7 +927,7 @@ async def api_rewrite(article_id: str = Form(...), strategy: str = Form(default=
                 await broadcast_ws({"type": "task_update", "task_id": task_id,
                                             "status": "running", "message": message, "progress": progress})
 
-            task_manager.update(task_id, status="running", message="正在改写...", progress=0)
+            task_manager.update(task_id, status="running", message="✍️ 正在改写...", progress=0)
 
             from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
             async with RewriteProcessor(CONFIG) as processor:
@@ -1088,7 +1089,7 @@ async def api_compose(
 
     async def run_task():
         try:
-            task_manager.update(task_id, status="running", message="正在处理...")
+            task_manager.update(task_id, status="running", message="🔧 正在处理...")
 
             from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
             from content_aggregator.exporters import Exporter
@@ -1319,6 +1320,189 @@ async def api_toggle_rss_source(name: str):
             if save_config(CONFIG):
                 return JSONResponse({"success": True, "enabled": s["enabled"]})
     return JSONResponse({"success": False, "error": "未找到该源"})
+
+
+# ========================================================================
+# 热点源启用/禁用 API（单配置源：douyin_hot, wangyi, weibo_hot）
+# ========================================================================
+
+_HOT_SOURCE_TYPES = {"douyin_hot", "wangyi", "weibo_hot"}
+
+
+@app.post("/api/sources/hot/{source_type}/toggle")
+async def api_toggle_hot_source(source_type: str):
+    """启用/禁用热点数据源（douyin_hot / wangyi / weibo_hot）"""
+    if source_type not in _HOT_SOURCE_TYPES:
+        return JSONResponse({"success": False, "error": f"不支持的源类型: {source_type}"})
+    global CONFIG
+    src_cfg = CONFIG.get("sources", {}).get(source_type)
+    if not src_cfg:
+        return JSONResponse({"success": False, "error": f"未配置 {source_type}"})
+    src_cfg["enabled"] = not src_cfg.get("enabled", True)
+    if save_config(CONFIG):
+        return JSONResponse({"success": True, "enabled": src_cfg["enabled"]})
+    return JSONResponse({"success": False, "error": "保存失败"})
+
+
+# ========================================================================
+# 单源采集 API（热点源）
+# ========================================================================
+
+_SOURCE_LABELS = {
+    "douyin_hot": "抖音热点榜",
+    "wangyi": "网易新闻",
+    "weibo_hot": "微博热点",
+}
+
+
+@app.post("/api/collect/douyin_hot")
+async def api_collect_douyin_hot(
+    rewrite: bool = Form(default=True),
+    translate: str | None = Form(default=None),
+    formats: str | None = Form(default="markdown"),
+    limit: int | None = Form(default=None),
+):
+    """触发抖音热点榜采集"""
+    task_id = task_manager.create("collect_douyin_hot", "抖音热点榜采集")
+    fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
+
+    async def run_task():
+        async def progress_callback(current, total, message, progress):
+            task_manager.update(task_id, status="running", progress=progress, message=message)
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                        "status": "running", "message": message, "progress": progress})
+
+        try:
+            task_manager.update(task_id, status="running", message="正在采集抖音热点榜...")
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "running", "message": "正在采集抖音热点榜..."})
+
+            async with ContentPipeline(CONFIG) as pipeline:
+                result = await pipeline.process_source(
+                    "douyin_hot",
+                    rewrite=rewrite, translate=bool(translate),
+                    target_language=translate, formats=fmt_list,
+                    limit_per_source=limit, progress_callback=progress_callback,
+                )
+                articles_data = [a.to_dict() for a in result.get("articles", [])]
+                article_store.add_batch(articles_data)
+                article_ids = [a.id for a in result.get("articles", [])]
+                summary = result.get("summary", {})
+                msg = f"抖音热点榜采集完成：{summary.get('total_articles', 0)} 条"
+                task_manager.update(task_id, status="done", progress=100, message=msg, result={
+                    "summary": summary, "article_ids": article_ids
+                })
+                await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                    "status": "done", "message": msg})
+        except Exception as e:
+            error_msg = f"抖音热点榜采集失败: {e}"
+            task_manager.update(task_id, status="error", message=error_msg)
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "error", "message": error_msg})
+            logger.error(error_msg, exc_info=True)
+
+    asyncio.create_task(run_task())
+    return JSONResponse({"task_id": task_id, "status": "started"})
+
+
+@app.post("/api/collect/wangyi")
+async def api_collect_wangyi(
+    rewrite: bool = Form(default=True),
+    translate: str | None = Form(default=None),
+    formats: str | None = Form(default="markdown"),
+    limit: int | None = Form(default=None),
+):
+    """触发网易新闻采集"""
+    task_id = task_manager.create("collect_wangyi", "网易新闻采集")
+    fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
+
+    async def run_task():
+        async def progress_callback(current, total, message, progress):
+            task_manager.update(task_id, status="running", progress=progress, message=message)
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                        "status": "running", "message": message, "progress": progress})
+
+        try:
+            task_manager.update(task_id, status="running", message="正在采集网易新闻...")
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "running", "message": "正在采集网易新闻..."})
+
+            async with ContentPipeline(CONFIG) as pipeline:
+                result = await pipeline.process_source(
+                    "wangyi",
+                    rewrite=rewrite, translate=bool(translate),
+                    target_language=translate, formats=fmt_list,
+                    limit_per_source=limit, progress_callback=progress_callback,
+                )
+                articles_data = [a.to_dict() for a in result.get("articles", [])]
+                article_store.add_batch(articles_data)
+                article_ids = [a.id for a in result.get("articles", [])]
+                summary = result.get("summary", {})
+                msg = f"网易新闻采集完成：{summary.get('total_articles', 0)} 篇"
+                task_manager.update(task_id, status="done", progress=100, message=msg, result={
+                    "summary": summary, "article_ids": article_ids
+                })
+                await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                    "status": "done", "message": msg})
+        except Exception as e:
+            error_msg = f"网易新闻采集失败: {e}"
+            task_manager.update(task_id, status="error", message=error_msg)
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "error", "message": error_msg})
+            logger.error(error_msg, exc_info=True)
+
+    asyncio.create_task(run_task())
+    return JSONResponse({"task_id": task_id, "status": "started"})
+
+
+@app.post("/api/collect/weibo_hot")
+async def api_collect_weibo_hot(
+    rewrite: bool = Form(default=True),
+    translate: str | None = Form(default=None),
+    formats: str | None = Form(default="markdown"),
+    limit: int | None = Form(default=None),
+):
+    """触发微博热点采集"""
+    task_id = task_manager.create("collect_weibo_hot", "微博热点采集")
+    fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
+
+    async def run_task():
+        async def progress_callback(current, total, message, progress):
+            task_manager.update(task_id, status="running", progress=progress, message=message)
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                        "status": "running", "message": message, "progress": progress})
+
+        try:
+            task_manager.update(task_id, status="running", message="正在采集微博热点...")
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "running", "message": "正在采集微博热点..."})
+
+            async with ContentPipeline(CONFIG) as pipeline:
+                result = await pipeline.process_source(
+                    "weibo_hot",
+                    rewrite=rewrite, translate=bool(translate),
+                    target_language=translate, formats=fmt_list,
+                    limit_per_source=limit, progress_callback=progress_callback,
+                )
+                articles_data = [a.to_dict() for a in result.get("articles", [])]
+                article_store.add_batch(articles_data)
+                article_ids = [a.id for a in result.get("articles", [])]
+                summary = result.get("summary", {})
+                msg = f"微博热点采集完成：{summary.get('total_articles', 0)} 条"
+                task_manager.update(task_id, status="done", progress=100, message=msg, result={
+                    "summary": summary, "article_ids": article_ids
+                })
+                await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                    "status": "done", "message": msg})
+        except Exception as e:
+            error_msg = f"微博热点采集失败: {e}"
+            task_manager.update(task_id, status="error", message=error_msg)
+            await broadcast_ws({"type": "task_update", "task_id": task_id,
+                                "status": "error", "message": error_msg})
+            logger.error(error_msg, exc_info=True)
+
+    asyncio.create_task(run_task())
+    return JSONResponse({"task_id": task_id, "status": "started"})
 
 
 @app.get("/api/config")

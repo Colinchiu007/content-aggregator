@@ -371,10 +371,16 @@ class ContentPipeline:
         total_skipped = 0
         total_filtered = {"sensitive": 0, "dedup": 0}
 
+        # --- 阶段 0: 初始化（立即报告 5%）---
+        if progress_callback:
+            await progress_callback(0, 1, "🔧 初始化流水线（加载配置、过滤器、通知器）...", 5)
+
         # 初始化翻译器（如果需要）
         translator = None
         translation_lang = None
         if translate and self.translation_config.get("enabled", False):
+            if progress_callback:
+                await progress_callback(0, 1, "🔧 初始化翻译器...", 8)
             lang_code = target_language or self.translation_config.get("default_language", "EN")
             try:
                 translation_lang = TranslationLanguage(lang_code)
@@ -387,6 +393,8 @@ class ContentPipeline:
         # SEO processor (lazy init)
         seo_processor = None
         if seo:
+            if progress_callback:
+                await progress_callback(0, 1, "🔧 初始化 SEO 优化器...", 10)
             seo_processor = SEOProcessor(self.config)
             await seo_processor.__aenter__()
 
@@ -397,6 +405,9 @@ class ContentPipeline:
             "twitter": self._parse_single_config,
             "tiktok": self._parse_single_config,
             "douyin": self._parse_single_config,
+            "douyin_hot": self._parse_single_config,
+            "wangyi": self._parse_single_config,
+            "weibo_hot": self._parse_single_config,
             "xiaohongshu": self._parse_single_config,
             "wechat": self._parse_single_config,
             "sitemap": self._parse_single_config,
@@ -410,6 +421,11 @@ class ContentPipeline:
             if entries:
                 total_sources += len(entries)
 
+        # --- 阶段 1: 扫描完成，准备采集（15%）---
+        if progress_callback:
+            msg = f"📡 扫描完成，准备采集 {total_sources} 个数据源..."
+            await progress_callback(0, 1, msg, min(15, 100 if total_sources == 0 else 15))
+
         current_source = 0
 
         for source_type, parse_fn in source_configs_map.items():
@@ -422,10 +438,16 @@ class ContentPipeline:
                 current_source += 1
                 entry_name = entry.get("name", source_type)
                 
-                # 报告进度
+                # 计算当前源的基准进度（避免 0% 卡太久）
+                # 每个源分配 80% 的剩余进度空间（15%~95%），留 5% 给汇总
+                base_progress = 15 + int((current_source - 1) / max(total_sources, 1) * 80)
+                step_range = max(1, int(80 / max(total_sources, 1)))  # 每个源的进度跨度
+                
+                # --- 子步骤 1: 初始化采集器 ---
                 if progress_callback:
-                    progress = int((current_source - 1) / total_sources * 100) if total_sources > 0 else 0
-                    await progress_callback(current_source - 1, total_sources, f"正在采集: {entry_name}", progress)
+                    await progress_callback(current_source, total_sources,
+                        f"📡 [{current_source}/{total_sources}] 正在连接 {entry_name}...",
+                        base_progress)
                 
                 logger.info(f"[Pipeline] 采集源: {entry_name} ({source_type})")
                 entry_name = entry.get("name", source_type)
@@ -448,15 +470,44 @@ class ContentPipeline:
                     if limit_per_source:
                         collect_kwargs['max_results'] = limit_per_source
                     
+                    # --- 子步骤 2: 执行采集 ---
+                    if progress_callback:
+                        await progress_callback(current_source, total_sources,
+                            f"🔍 [{current_source}/{total_sources}] 正在从 {entry_name} 抓取内容...",
+                            base_progress + step_range // 4)
+                    
                     result: SourceResult = await collector.collect(**collect_kwargs)
                     logger.info(f'[process_source] {entry_name}: success={result.success}, collected={result.collected_count}, data_len={len(result.data) if result.data else 0}')
 
+                    if not result.data:
+                        logger.warning(f"[{entry_name}] 采集结果为空")
+                        source_results.append({
+                            "source_name": entry_name,
+                            "source_type": source_type,
+                            "success": False,
+                            "collected": 0,
+                            "skipped": 1,
+                            "error": "采集结果为空",
+                            "duration": 0,
+                        })
+                        if progress_callback:
+                            progress = base_progress + step_range
+                            await progress_callback(current_source, total_sources,
+                                f"⚠️ [{current_source}/{total_sources}] {entry_name} 无内容返回",
+                                progress)
+                        continue
+
+                    # --- 子步骤 3: 处理文章（过滤+改写+翻译+SEO+导出）---
                     # 采集成功，转换为 Article
                     source_article_count = 0
-                    for item_data in (result.data or []):
+                    total_items = len(result.data)
+                    for idx, item_data in enumerate(result.data):
                         if limit_per_source and source_article_count >= limit_per_source:
                             break
                         source_article_count += 1
+                        
+                        # 每处理 1/4 的文章更新一次进度
+                        item_progress = base_progress + step_range // 4 + int((idx / max(total_items, 1)) * (step_range * 3 // 4))
                         
                         # 创建 Content 对象用于过滤
                         content = Content(
@@ -478,6 +529,10 @@ class ContentPipeline:
                                 total_filtered["sensitive"] += 1
                             else:
                                 total_filtered["dedup"] += 1
+                            if progress_callback and idx % max(1, total_items // 4) == 0:
+                                await progress_callback(current_source, total_sources,
+                                    f"🚫 [{current_source}/{total_sources}] {entry_name}: 过滤 {reason} ({idx+1}/{total_items})",
+                                    item_progress)
                             continue
 
                         article = Article(
@@ -500,6 +555,10 @@ class ContentPipeline:
                                     article.content = rewrite_result.rewritten_content
                                     article.word_count = len(rewrite_result.rewritten_content)
                                     article.title = rewrite_result.title or article.title
+                                if progress_callback and idx % max(1, total_items // 4) == 0:
+                                    await progress_callback(current_source, total_sources,
+                                        f"✍️ [{current_source}/{total_sources}] {entry_name}: 改写中 ({idx+1}/{total_items})",
+                                        item_progress)
                             except Exception as e:
                                 logger.warning(f"改写失败（{article.title}）: {e}")
 
@@ -515,6 +574,10 @@ class ContentPipeline:
                                     article.title = f"{article.title} ({translation_lang.value})"
                                     article.content = trans_result.translated_content
                                     article.word_count = len(trans_result.translated_content)
+                                if progress_callback and idx % max(1, total_items // 4) == 0:
+                                    await progress_callback(current_source, total_sources,
+                                        f"🌐 [{current_source}/{total_sources}] {entry_name}: 翻译中 ({idx+1}/{total_items})",
+                                        item_progress)
                             except Exception as e:
                                 logger.warning(f"翻译失败（{article.title}）: {e}")
 
@@ -527,6 +590,10 @@ class ContentPipeline:
                                     article.metadata["seo_keywords"] = seo_result.keywords
                                     article.metadata["seo_description"] = seo_result.meta_description
                                     article.metadata["seo_title"] = seo_result.meta_title
+                                if progress_callback and idx % max(1, total_items // 4) == 0:
+                                    await progress_callback(current_source, total_sources,
+                                        f"🔍 [{current_source}/{total_sources}] {entry_name}: SEO 优化 ({idx+1}/{total_items})",
+                                        item_progress)
                             except Exception as e:
                                 logger.warning(f"SEO failed ({article.title}): {e}")
 
@@ -540,6 +607,7 @@ class ContentPipeline:
                                 except Exception as e:
                                     logger.error(f"导出失败 ({fmt}): {e}")
 
+                    # --- 当前源完成 ---
                     # 成功：追加到 source_results
                     source_results.append({
                         "source_name": entry_name,
@@ -554,8 +622,11 @@ class ContentPipeline:
                     
                     # 报告进度（完成当前源）
                     if progress_callback:
-                        progress = int(current_source / total_sources * 100) if total_sources > 0 else 100
-                        await progress_callback(current_source, total_sources, f"完成采集: {entry_name}", progress)
+                        progress = base_progress + step_range
+                        msg = f"✅ [{current_source}/{total_sources}] {entry_name} 完成 — 采集 {result.collected_count} 篇"
+                        if result.collected_count == 0:
+                            msg = f"⚠️ [{current_source}/{total_sources}] {entry_name} 无内容返回"
+                        await progress_callback(current_source, total_sources, msg, progress)
 
                 except Exception as e:
                     total_skipped += 1
@@ -574,8 +645,10 @@ class ContentPipeline:
                     
                     # 报告进度（跳过当前源）
                     if progress_callback:
-                        progress = int(current_source / total_sources * 100) if total_sources > 0 else 100
-                        await progress_callback(current_source, total_sources, f"跳过: {entry_name}", progress)
+                        progress = base_progress + step_range
+                        await progress_callback(current_source, total_sources,
+                            f"❌ [{current_source}/{total_sources}] {entry_name} 失败: {str(e)[:60]}",
+                            progress)
 
         elapsed = time.time() - start
         success_sources = sum(1 for r in source_results if r["success"])
@@ -583,6 +656,15 @@ class ContentPipeline:
         # Cleanup SEO processor
         if seo_processor:
             await seo_processor.__a_exit__(None, None, None)
+
+        # --- 最终汇总进度（95%→100%）---
+        if progress_callback:
+            await progress_callback(total_sources, total_sources,
+                f"📊 正在汇总结果（{len(all_articles)} 篇文章，{elapsed:.1f}s）...",
+                95)
+            await progress_callback(total_sources, total_sources,
+                f"✅ 全部完成！成功 {success_sources}/{len(source_results)} 个源，共 {len(all_articles)} 篇文章",
+                100)
 
         print(f"\n{'=' * 60}")
         print(f"汇总")
@@ -696,14 +778,23 @@ class ContentPipeline:
         total_entries = len(entries)
         current_entry = 0
 
+        # --- 初始化进度 ---
+        if progress_callback:
+            await progress_callback(0, 1, f"🔧 初始化 {source_type} 采集器...", 5)
+
         for entry in entries:
             current_entry += 1
             entry_name = entry.get("name", source_type)
             
-            # 报告进度
+            # 计算基准进度（10%~90%）
+            base_progress = 10 + int((current_entry - 1) / max(total_entries, 1) * 80)
+            step_range = max(1, int(80 / max(total_entries, 1)))
+            
+            # --- 子步骤: 连接 ---
             if progress_callback:
-                progress = int((current_entry - 1) / total_entries * 100) if total_entries > 0 else 0
-                await progress_callback(current_entry - 1, total_entries, f"正在采集: {entry_name}", progress)
+                await progress_callback(current_entry, total_entries,
+                    f"📡 [{current_entry}/{total_entries}] 正在连接 {entry_name}...",
+                    base_progress)
             
             try:
                 collector = get_collector(
@@ -722,8 +813,28 @@ class ContentPipeline:
                 if limit_per_source:
                     collect_kwargs['max_results'] = limit_per_source
                 
+                # --- 子步骤: 采集 ---
+                if progress_callback:
+                    await progress_callback(current_entry, total_entries,
+                        f"🔍 [{current_entry}/{total_entries}] 正在从 {entry_name} 抓取内容...",
+                        base_progress + step_range // 4)
+                
                 result: SourceResult = await collector.collect(**collect_kwargs)
                 logger.info(f'[process_source] {entry_name}: success={result.success}, collected={result.collected_count}, data_len={len(result.data) if result.data else 0}')
+
+                if not result.data:
+                    logger.warning(f"[{entry_name}] 采集结果为空")
+                    source_results.append({
+                        "source_name": entry_name,
+                        "success": False,
+                        "collected": 0,
+                        "error": "采集结果为空",
+                    })
+                    if progress_callback:
+                        await progress_callback(current_entry, total_entries,
+                            f"⚠️ [{current_entry}/{total_entries}] {entry_name} 无内容返回",
+                            base_progress + step_range)
+                    continue
 
                 source_results.append({
                     "source_name": entry_name,
@@ -732,9 +843,15 @@ class ContentPipeline:
                     "error": result.error,
                 })
                 
+                # --- 子步骤: 处理文章 ---
+                if progress_callback:
+                    await progress_callback(current_entry, total_entries,
+                        f"✍️ [{current_entry}/{total_entries}] {entry_name}: 处理 {result.collected_count} 篇文章...",
+                        base_progress + step_range // 2)
+                
                 # 报告进度（完成当前条目）
                 if progress_callback:
-                    progress = int(current_entry / total_entries * 100) if total_entries > 0 else 100
+                    progress = base_progress + step_range
                     await progress_callback(current_entry, total_entries, f"完成采集: {entry_name}", progress)
                 
                 if result.success and result.data:
@@ -813,6 +930,29 @@ class ContentPipeline:
                         entry["name"] = f"YouTube搜索: {query.strip()}"
                         entry["max_items"] = search_limit
                         entries.append(entry)
+
+        # 网易新闻频道列表
+        if source_type == "wangyi":
+            channels = source_cfg.get("channels", ["news", "ent", "tech"])
+            limit = source_cfg.get("limit", 10)
+            for ch in channels:
+                if isinstance(ch, str) and ch.strip():
+                    entry = dict(source_cfg)
+                    entry["channels"] = [ch.strip()]
+                    entry["name"] = f"网易{ch.strip()}"
+                    entry["max_items"] = limit
+                    entries.append(entry)
+            return entries  # 网易特殊处理，不进入通用 list_key 循环
+
+        # 抖音热点/微博热点：直接作为单个源（无子列表）
+        if source_type in ("douyin_hot", "weibo_hot"):
+            if source_cfg.get("enabled", True):
+                entry = dict(source_cfg)
+                entry["name"] = {"douyin_hot": "抖音热点榜", "weibo_hot": "微博热点"}.get(source_type, source_type)
+                entry["max_items"] = source_cfg.get("limit", 20)
+                entries.append(entry)
+                return entries
+            return []
 
         # 频道/用户/账号列表
         for list_key in ["channels", "users", "accounts", "sites", "endpoints"]:

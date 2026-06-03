@@ -10,6 +10,9 @@ from content_aggregator.sources.collectors import (
     TwitterCollector,
     TikTokCollector,
     DouyinCollector,
+    DouyinHotCollector,
+    WangYiCollector,
+    WeiboHotCollector,
     XiaohongshuCollector,
     WeChatCollector,
     SitemapCollector,
@@ -29,6 +32,9 @@ __all__ = [
     "TwitterCollector",
     "TikTokCollector",
     "DouyinCollector",
+    "DouyinHotCollector",
+    "WangYiCollector",
+    "WeiboHotCollector",
     "XiaohongshuCollector",
     "WeChatCollector",
     "SitemapCollector",
@@ -55,6 +61,9 @@ def get_collector(source_type: str, config: dict | None = None, **kwargs):
         "twitter": (TwitterCollector, ["username", "query"]),
         "tiktok": (TikTokCollector, ["sec_uid", "username"]),
         "douyin": (DouyinCollector, ["sec_uid", "username"]),
+        "douyin_hot": (DouyinHotCollector, []),
+        "wangyi": (WangYiCollector, ["channels"]),
+        "weibo_hot": (WeiboHotCollector, []),
         "xiaohongshu": (XiaohongshuCollector, ["user_id", "keyword"]),
         "wechat": (WeChatCollector, ["biz", "name"]),
         "sitemap": (SitemapCollector, ["base_url"]),
@@ -76,17 +85,26 @@ def get_collector(source_type: str, config: dict | None = None, **kwargs):
         "twitter": "bearer_token",
         "tiktok": "session_id",
         "douyin": ("cookie", "client_key"),
+        "douyin_hot": "cookie",
+        "wangyi": None,  # 网易新闻不需要认证
+        "weibo_hot": None,  # 微博热点可免登录
         "xiaohongshu": ("cookie", "xhs_token"),
         "wechat": "api_key",
     }
 
     if source_type in key_fields:
         keys = key_fields[source_type]
-        if isinstance(keys, str):
+        if keys is None:
+            pass  # 不需要认证字段
+        elif isinstance(keys, str):
             keys = [keys]
-        for k in keys:
-            if k in source_cfg:
-                init_kwargs[k] = source_cfg[k]
+            for k in keys:
+                if k in source_cfg and source_cfg[k] is not None:
+                    init_kwargs[k] = source_cfg[k]
+        else:
+            for k in keys:
+                if k in source_cfg and source_cfg[k] is not None:
+                    init_kwargs[k] = source_cfg[k]
 
     # YouTube 字幕提取：传入 LLM 配置（用于无字幕时的 AI 识别）
     if source_type == "youtube":

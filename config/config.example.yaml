@@ -76,6 +76,27 @@ sources:
       #   sec_uid: "MS4wLjABAAAA..."
       #   username: "douyin_id"
 
+  # 抖音热点榜（热榜，与 douyin 用户视频采集区分）
+  douyin_hot:
+    enabled: true
+    cookie: null  # 可选，热榜可免登录
+    limit: 20     # 每次抓取热榜前 N 条
+    enable_anti_block: false
+
+  # 网易新闻
+  wangyi:
+    enabled: true
+    channels: ["news", "ent", "tech"]  # 新闻/娱乐/科技
+    limit: 10                           # 每个频道最多 N 篇
+    enable_anti_block: false
+
+  # 微博热点（热搜榜）
+  weibo_hot:
+    enabled: true
+    limit: 30       # 热搜榜前 N 条
+    include_detail: false  # 是否获取每条热搜的详情页链接（较慢）
+    enable_anti_block: false
+
   xiaohongshu:
     cookie: null  # 小红书网页登录 Cookie
     xhs_token: null  # 小红书 X-s 令牌（可选）

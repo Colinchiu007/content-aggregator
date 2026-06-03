@@ -10,6 +10,9 @@ from content_aggregator.sources.collectors.xiaohongshu_collector import Xiaohong
 from content_aggregator.sources.collectors.wechat_collector import WeChatCollector
 from content_aggregator.sources.collectors.sitemap_collector import SitemapCollector
 from content_aggregator.sources.collectors.api_collector import APICollector
+from content_aggregator.sources.collectors.wangyi_collector import WangYiCollector
+from content_aggregator.sources.collectors.weibo_hot_collector import WeiboHotCollector
+from content_aggregator.sources.collectors.douyin_hot_collector import DouyinHotCollector
 
 __all__ = [
     "BaseCollector",
@@ -19,8 +22,11 @@ __all__ = [
     "TwitterCollector",
     "TikTokCollector",
     "DouyinCollector",
+    "DouyinHotCollector",
     "XiaohongshuCollector",
     "WeChatCollector",
     "SitemapCollector",
     "APICollector",
+    "WangYiCollector",
+    "WeiboHotCollector",
 ]
