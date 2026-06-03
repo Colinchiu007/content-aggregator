@@ -43,6 +43,7 @@ from settings_crypto import encrypt_config, decrypt_config
 from content_aggregator.workflows.pipeline import ContentPipeline
 from content_aggregator.models import Article, Content
 from content_aggregator.strategy_store import RewriteStrategyStore
+from content_aggregator.processors.asr_processor import ASRConfig
 from server_scheduler import BackgroundScheduler
 
 
@@ -812,11 +813,64 @@ async def api_collect_link(
 
             result = await collector.fetch_by_url(url)
 
-            # 3. 如果有视频，尝试 ASR（TODO: 集成 Whisper API）
+            # 3. 如果有视频，尝试 ASR 转写
             if result.get("media_type") == "video" and result.get("metadata", {}).get("video_url"):
-                task_manager.update(task_id, status="running", progress=60, message="检测到视频，ASR 功能待集成...")
-                # TODO: 下载视频 → 调用 ASR API → 填充 transcribed_text
-                result["transcribed_text"] = ""  # 暂时为空
+                video_url = result["metadata"]["video_url"]
+                task_manager.update(task_id, status="running", progress=60, message=f"正在下载音频（{video_url[:40]}...）")
+                await broadcast_ws({
+                    "type": "task_update",
+                    "task_id": task_id,
+                    "status": "running",
+                    "progress": 60,
+                    "message": "正在下载音频...",
+                })
+
+                # 构建 ASR 配置（从系统设置读取）
+                asr_models = config.get("asr", {}).get("models", [])
+                if asr_models:
+                    # 取第一个模型作为默认
+                    asr_model = asr_models[0]
+                    asr_cfg = ASRConfig(
+                        api_endpoint=asr_model.get("base_url", ""),
+                        api_key=asr_model.get("api_key", ""),
+                        model_id=asr_model.get("model_id", "whisper-1"),
+                    )
+                    if asr_cfg.api_endpoint:
+                        try:
+                            from content_aggregator.processors.asr_processor import ASRProcessor
+
+                            async with ASRProcessor(asr_cfg) as asr:
+                                asr_result = await asr.process(
+                                    video_url,
+                                    progress_callback=lambda c, t, m: task_manager.update(
+                                        task_id, status="running", progress=60 + int(c * 0.4), message=m
+                                    ),
+                                )
+                                if asr_result.success:
+                                    result["transcribed_text"] = asr_result.transcribed_text
+                                    logger.info(
+                                        f"ASR 转写成功: {asr_result.word_count}字, "
+                                        f"耗时{asr_result.duration:.1f}s"
+                                    )
+                                    await broadcast_ws({
+                                        "type": "task_update",
+                                        "task_id": task_id,
+                                        "status": "running",
+                                        "progress": 90,
+                                        "message": f"ASR 转写完成: {asr_result.word_count}字",
+                                    })
+                                else:
+                                    logger.warning(f"ASR 转写失败: {asr_result.error}")
+                                    result["transcribed_text"] = f"[ASR 转写失败: {asr_result.error}]"
+                        except Exception as e:
+                            logger.error(f"ASR 处理异常: {e}")
+                            result["transcribed_text"] = f"[ASR 处理异常: {e}]"
+                    else:
+                        logger.info("ASR API 端点未配置，跳过转写")
+                        result["transcribed_text"] = ""
+                else:
+                    logger.info("未配置 ASR 模型，跳过转写")
+                    result["transcribed_text"] = ""
 
             # 4. 保存到 article_store
             article_data = {
