@@ -11,10 +11,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-import httpx
 from loguru import logger
 
 from content_aggregator.models import Content
+from content_aggregator.clients.llm_client import LLMClient
 
 
 class TranslationLanguage(Enum):
@@ -53,7 +53,7 @@ class TranslationConfig:
     target_language: TranslationLanguage = TranslationLanguage.ENGLISH
     # 自定义翻译提示词（覆盖默认）
     custom_prompt: str | None = None
-    # 语气风格：formal（正式）/ casual（口语）/ academic（学术）
+    # 语气风格：formal（正式）/casual（口语）/academic（学术）
     tone: str = "casual"
     # 保留原文格式（如 Markdown 标记）
     preserve_formatting: bool = True
@@ -79,7 +79,7 @@ class TranslatorProcessor:
     多语言翻译处理器
 
     将文章内容翻译为目标语言，保持语义和基本风格。
-    内部使用 LLM API，无需额外翻译服务。
+    内部使用统一的 LLMClient，无需额外翻译服务。
 
     使用示例：
         async with TranslatorProcessor(config) as processor:
@@ -98,47 +98,31 @@ Requirements:
 - Preserve the original meaning and tone
 - Keep Markdown formatting (headers, lists, code blocks, etc.)
 - Use natural, fluent English
-- For technical terms, keep Chinese original in parentheses if no standard English translation exists
-- Title should be translated to be catchy in English
-- Keep similar paragraph structure
+- Do NOT add explanations or notes
 
-Output format: Only the translated content, no explanations or notes.""",
-
-        TranslationLanguage.JAPANESE: """あなたはプロフェッショナルな翻訳者です。以下の中国語の記事を日本語に翻訳してください。
+Output only the translated text.
+""",
+        TranslationLanguage.JAPANESE: """あなたはプロの翻訳者です。以下の中国語の記事を日本語に翻訳してください。
 
 要件：
-- 元の意味と文体を保つ
-- Markdown フォーマットを維持（見出し、リスト、コードブロックなど）
-- 自然で流れる日本語を使用
-- 技術用語は、適切な日本語訳がない場合は中国語原文を括弧で残す
-- タイトルは日本語として自然で目を引くものに
-- 元の段落構造を維持
+- 原文の意味とトーンを保持
+- Markdownフォーマット（見出し、リスト、コードブロック等）を保持
+- 自然で流暢な日本語を使用
+- 説明や注釈を追加しない
 
-出力形式：翻訳内容のみの説明や注釈なし。""",
-
-        TranslationLanguage.KOREAN: """당신은 전문 번역가입니다. 다음 중국어 기사를 한국어로 번역해 주세요.
+翻訳テキストのみを出力してください。
+""",
+        TranslationLanguage.KOREAN: """당신은 전문 번역가입니다. 다음 중국어 기사를 한국어로 번역하세요.
 
 요구사항:
 - 원문의 의미와 톤을 유지
-- Markdown 서식 유지 (제목, 목록, 코드 블록 등)
+- 마크다운 포맷팅（제목, 목록, 코드 블록 등）유지
 - 자연스럽고 유창한 한국어 사용
-- 기술 용어는 표준 한국어 번역이 없으면 중국어 원문을 괄호 안에 유지
-- 제목은 한국어로 자연스럽고 눈에 띄는 것으로
-- 원본 단락 구조 유지
+- 설명이나 주석 추가하지 마세요
 
-출력 형식: 번역된 내용만, 설명이나 메모 없음.""",
-
-        # 以下语言使用通用提示词
-        "default": """You are a professional translator. Translate the following Chinese article into the target language.
-
-Requirements:
-- Preserve the original meaning and tone
-- Keep Markdown formatting
-- Use natural, fluent target language
-- Keep similar paragraph structure
-- Title should be natural in target language
-
-Output: Only the translated content, no explanations."""
+번역된 텍스트만 출력하세요.
+""",
+        # 其他语言的提示词可以在这里添加
     }
 
     def __init__(self, config: dict[str, Any]):
@@ -146,117 +130,95 @@ Output: Only the translated content, no explanations."""
         初始化翻译处理器
 
         参数：
-            config: 配置文件，包含 llm 配置（同 rewrite 模块）
+            config: 配置字典
         """
         self.config = config
         self.llm_config = config.get("llm", {})
-        self.client: httpx.AsyncClient | None = None
+        # 使用统一的 LLMClient
+        self.llm_client = LLMClient(self.llm_config)
 
     async def __aenter__(self):
-        timeout = self.llm_config.get("timeout", 120)
-        self.client = httpx.AsyncClient(timeout=timeout)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.client:
-            try:
-                await self.client.aclose()
-            except asyncio.CancelledError:
-                pass  # Client closed due to cancellation, ignore
+        await self.llm_client.close()
 
     async def translate(
         self,
         content: Content,
-        translation_config: TranslationConfig | None = None
+        translation_config: TranslationConfig | None = None,
     ) -> TranslationResult:
-        """翻译单篇内容"""
+        """
+        翻译单篇内容
+
+        参数：
+            content: 原始内容对象
+            translation_config: 翻译配置（可选）
+
+        返回：
+            TranslationResult 对象
+        """
         if translation_config is None:
             translation_config = TranslationConfig()
 
         start_time = time.time()
+        logger.info(f"[TranslatorProcessor.translate] START: {content.title[:60]}")
 
         try:
+            # 构造提示词
             prompt = self._build_prompt(content, translation_config)
-            llm_response = await self._call_llm(prompt, translation_config)
+
+            logger.info(f"[TranslatorProcessor.translate] Prompt built, calling LLM...")
+
+            # 调用 LLM（使用统一的 LLMClient）
+            llm_response = await self.llm_client.call(prompt)
+
+            logger.info(f"[TranslatorProcessor.translate] LLM response received, parsing...")
+
             response_text = llm_response["content"]
             usage = llm_response.get("usage", {})
 
             result = self._parse_response(response_text, content, translation_config, usage)
             result.duration = time.time() - start_time
 
+            logger.info(f"[TranslatorProcessor.translate] SUCCESS: {content.title[:60]} -> {len(result.translated_content)} chars")
+
             return result
 
         except Exception as e:
-            logger.error(f"Translation error: {e}")
+            logger.error(f"[TranslatorProcessor.translate] FAILED: {e}")
             return TranslationResult(
                 success=False,
                 original_content=content,
                 error=str(e),
-                duration=time.time() - start_time
+                duration=time.time() - start_time,
             )
 
-    async def translate_batch(
-        self,
-        contents: list[Content],
-        translation_config: TranslationConfig | None = None
-    ) -> list[TranslationResult]:
-        """批量翻译（带并发控制）"""
-        if translation_config is None:
-            translation_config = TranslationConfig()
+    def _build_prompt(self, content: Content, config: TranslationConfig) -> str:
+        """
+        构造翻译提示词
 
-        semaphore = asyncio.Semaphore(
-            self.llm_config.get("max_concurrency", 3)
-        )
-
-        async def translate_with_limit(content: Content) -> TranslationResult:
-            async with semaphore:
-                return await self.translate(content, translation_config)
-
-        tasks = [translate_with_limit(content) for content in contents]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        processed_results = []
-        for i, result in enumerate(results):
-            if isinstance(result, Exception):
-                processed_results.append(TranslationResult(
-                    success=False,
-                    original_content=contents[i],
-                    error=str(result)
-                ))
-            else:
-                processed_results.append(result)
-
-        return processed_results
-
-    def _get_prompt(self, language: TranslationLanguage) -> str:
-        """获取指定语言的翻译提示词"""
-        if language in self.TRANSLATION_PROMPTS:
-            return self.TRANSLATION_PROMPTS[language]
-        return self.TRANSLATION_PROMPTS["default"]
-
-    def _build_prompt(
-        self,
-        content: Content,
-        config: TranslationConfig
-    ) -> str:
-        """构建完整的翻译提示词"""
-        # 1. 优先使用自定义提示词
+        优先级：
+        1. config.custom_prompt（最高）
+        2. TRANSLATION_PROMPTS[target_language]（语言特定）
+        3. 默认通用提示词
+        """
+        # 1. 使用自定义提示词（如果提供）
         if config.custom_prompt:
-            return f"{config.custom_prompt}\n\n【原文标题】\n{content.title}\n\n【原文内容】\n{content.content[:10000]}"
+            system_prompt = config.custom_prompt
+        else:
+            # 2. 使用语言特定的提示词
+            system_prompt = self.TRANSLATION_PROMPTS.get(
+                config.target_language,
+                self.TRANSLATION_PROMPTS[TranslationLanguage.ENGLISH]  # 默认英语
+            )
 
-        # 2. 构建默认提示词
-        system_prompt = self._get_prompt(config.target_language)
+        # 添加语气和格式要求
+        if config.tone == "formal":
+            system_prompt += "\n\nIMPORTANT: Use formal, professional tone."
+        elif config.tone == "academic":
+            system_prompt += "\n\nIMPORTANT: Use academic, scholarly tone."
 
-        # 添加语气要求
-        tone_map = {
-            "formal": "Use formal language suitable for business/professional context.",
-            "casual": "Use casual, conversational tone suitable for social media/blog.",
-            "academic": "Use academic tone suitable for research papers or technical articles."
-        }
-        if config.tone in tone_map:
-            system_prompt += f"\n\n{tone_map[config.tone]}"
-
-        # 添加格式保留说明
         if config.preserve_formatting:
             system_prompt += "\n\nIMPORTANT: Preserve all Markdown formatting (##, *, -, ```, etc.) exactly as they appear."
 
@@ -267,65 +229,6 @@ Output: Only the translated content, no explanations."""
 {content.content[:10000]}"""
 
         return f"{system_prompt}\n\n{user_prompt}"
-
-    async def _call_llm(
-        self,
-        prompt: str,
-        config: TranslationConfig
-    ) -> dict:
-        """调用 LLM API"""
-        provider = self.llm_config.get("provider", "deepseek")
-        api_key = self.llm_config.get("api_key")
-        model = self.llm_config.get("model", "deepseek-chat")
-        base_url = self.llm_config.get("base_url", "https://api.deepseek.com")
-        max_tokens = config.max_tokens
-
-        if not api_key:
-            raise ValueError("LLM API key is required")
-
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-
-        data = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens,
-            "temperature": 0.7
-        }
-        url = f"{base_url}/chat/completions"
-
-        retry = self.llm_config.get("retry", 3)
-        last_error = None
-
-        for attempt in range(retry):
-            try:
-                response = await self.client.post(url, json=data, headers=headers)
-
-                if response.status_code == 200:
-                    result = response.json()
-                    usage = result.get("usage", {})
-                    return {
-                        "content": result["choices"][0]["message"]["content"],
-                        "usage": usage
-                    }
-                elif response.status_code == 429:
-                    wait_time = 2 ** attempt
-                    logger.warning(f"Rate limited, waiting {wait_time}s")
-                    await asyncio.sleep(wait_time)
-                    continue
-                else:
-                    error_msg = f"API error: {response.status_code} - {response.text}"
-                    logger.error(error_msg)
-                    raise Exception(error_msg)
-
-            except Exception as e:
-                last_error = e
-                logger.warning(f"LLM call attempt {attempt + 1} failed: {e}")
-                await asyncio.sleep(1)
-
-        raise Exception(f"LLM call failed after {retry} attempts: {last_error}")
 
     def _parse_response(
         self,
@@ -376,3 +279,39 @@ Output: Only the translated content, no explanations."""
         if len(text) <= length:
             return text
         return text[:length] + "..."
+
+
+# ============================
+# 扩展指南
+# ============================
+"""
+如何为 TranslatorProcessor 添加新的目标语言支持：
+
+1. 在 `TranslationLanguage` 枚举中添加新语言：
+    ```python
+    THAI = "th"  # 泰语
+    ```
+
+2. 在 `TRANSLATION_PROMPTS` 字典中添加该语言的提示词：
+    ```python
+    TranslationLanguage.THAI: """... Thai translation prompt ..."""
+    ```
+
+3. 更新配置文件示例（`config.yaml`）：
+    ```yaml
+    translate:
+      target_language: "th"  # 泰语
+      tone: "casual"
+      preserve_formatting: true
+    ```
+
+4. 如果需要使用特定 LLM provider（如 ERNIE 对中文→泰语效果更好），
+   在 `config.yaml` 中指定 provider：
+    ```yaml
+    llm:
+      provider: "ernie"  # 使用文心一言进行翻译
+      model: "ernie-4.0-turbo-8k"
+      api_key: "your-client-id"
+      api_secret: "your-client-secret"
+    ```
+"""

@@ -14,6 +14,7 @@ import httpx
 from loguru import logger
 
 from content_aggregator.models import Content
+from content_aggregator.clients.llm_client import LLMClient
 
 
 class RewriteStrategy(Enum):
@@ -51,6 +52,8 @@ class RewriteConfig:
     custom_prompt: str | None = None
     # 翻译目标语言。设为 "zh" 时先翻译成中文再改写
     translate_to: str | None = None
+    # 目标行业（可选，按行业语境改写）
+    industry: str | None = None
 
 
 @dataclass
@@ -192,18 +195,17 @@ class RewriteProcessor:
         self.config = config
         self.llm_config = config.get("llm", {})
         self.rewrite_config = config.get("rewrite", {})
-        self.client: httpx.AsyncClient | None = None
+        # 使用统一的 LLMClient
+        self.llm_client = LLMClient(self.llm_config)
         # 从配置文件加载自定义提示词（覆盖默认值）
         self._custom_prompts: dict[str, str] = self.rewrite_config.get("prompts", {})
 
     async def __aenter__(self):
-        timeout = self.llm_config.get("timeout", 120)
-        self.client = httpx.AsyncClient(timeout=timeout)
+        # LLMClient 内部自己管理 HTTP 客户端
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self.client:
-            await self.client.aclose()
+        await self.llm_client.close()
 
     async def rewrite(
         self,
@@ -230,7 +232,7 @@ class RewriteProcessor:
                 await progress_callback(0, 1, "正在调用 LLM 改写...", 10)
             
             logger.info(f"[RewriteProcessor.rewrite] Prompt built, calling LLM...")
-            llm_response = await self._call_llm(prompt, rewrite_config)
+            llm_response = await self.llm_client.call(prompt)
             
             # 报告进度：LLM 响应已收到，正在解析
             if progress_callback:
@@ -364,6 +366,13 @@ class RewriteProcessor:
             if style_rules:
                 system_prompt += "\n\n风格要求:\n" + "\n".join(style_rules)
 
+        # 行业定向（按行业语境改写）
+        if config.industry:
+            system_prompt += (
+                f"\n\n目标行业：{config.industry}"
+                f"\n请基于该行业的读者语境、专业术语和表达习惯进行改写。"
+            )
+
         # 字数要求
         system_prompt += (
             f"\n\n字数要求:{config.min_word_count}-{config.max_word_count}字,"
@@ -382,69 +391,8 @@ class RewriteProcessor:
 
         return f"{system_prompt}\n\n{user_prompt}"
 
-    async def _call_llm(self, prompt: str, config: RewriteConfig) -> dict:
-        """调用 LLM API"""
-        provider = self.llm_config.get("provider", "deepseek")
-        api_key = self.llm_config.get("api_key")
-        model = self.llm_config.get("model", "deepseek-chat")
-        base_url = self.llm_config.get("base_url", "https://api.deepseek.com")
-        max_tokens = self.llm_config.get("max_tokens", 4096)
-
-        if not api_key:
-            raise ValueError("LLM API key is required")
-
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-
-        data = {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": max_tokens,
-            "temperature": 0.7
-        }
-        url = f"{base_url}/chat/completions"
-        logger.info(f"[_call_llm] START: provider={provider}, model={model}, url={url}")
-        logger.info(f"[_call_llm] Prompt length: {len(prompt)} chars")
-
-        retry = self.llm_config.get("retry", 3)
-        last_error = None
-
-        for attempt in range(retry):
-            try:
-                logger.info(f"[_call_llm] Attempt {attempt + 1}/{retry}: Sending request...")
-                response = await self.client.post(url, json=data, headers=headers)
-                logger.info(f"[_call_llm] Response received: status={response.status_code}")
-
-                if response.status_code == 200:
-                    result = response.json()
-                    usage = result.get("usage", {})
-                    content = result["choices"][0]["message"]["content"]
-                    logger.info(f"[_call_llm] SUCCESS: got {len(content)} chars, usage={usage}")
-                    return {
-                        "content": content,
-                        "usage": usage
-                    }
-
-                elif response.status_code == 429:
-                    wait_time = 2 ** attempt
-                    logger.warning(f"[_call_llm] Rate limited, waiting {wait_time}s")
-                    await asyncio.sleep(wait_time)
-                    continue
-
-                else:
-                    error_msg = f"API error: {response.status_code} - {response.text}"
-                    logger.error(f"[_call_llm] ERROR: {error_msg}")
-                    raise Exception(error_msg)
-
-            except Exception as e:
-                last_error = e
-                logger.warning(f"[_call_llm] Attempt {attempt + 1} failed: {e}")
-                await asyncio.sleep(1)
-
-        logger.error(f"[_call_llm] FAILED after {retry} attempts: {last_error}")
-        raise Exception(f"LLM call failed after {retry} attempts: {last_error}")
+    # _call_llm() 已删除，改用统一的 LLMClient
+    # 如需自定义逻辑，在 LLMClient 中添加新的 _call_xxx() 方法
 
     def _parse_response(
         self,

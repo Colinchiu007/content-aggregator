@@ -21,10 +21,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-import httpx
 from loguru import logger
 
 from content_aggregator.models import Content
+from content_aggregator.clients.llm_client import LLMClient
 
 
 @dataclass
@@ -97,17 +97,14 @@ Rules:
     def __init__(self, config: dict[str, Any]):
         self.config = config
         self.llm_config = config.get("llm", {})
-        self.client: httpx.AsyncClient | None = None
+        # 使用统一的 LLMClient
+        self.llm_client = LLMClient(self.llm_config)
 
     async def __aenter__(self) -> "SEOProcessor":
-        timeout = self.llm_config.get("timeout", 60)
-        proxy = self.llm_config.get("proxy") or self.config.get("proxy")
-        self.client = httpx.AsyncClient(timeout=timeout, proxy=proxy)
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        if self.client:
-            await self.client.aclose()
+        await self.llm_client.close()
 
     async def optimize(
         self,
@@ -145,10 +142,12 @@ Rules:
 
             user_prompt = f"Title: {content.title}\n\nContent:\n{body}"
 
-            # 调用 LLM
-            result = await self._call_llm(system, user_prompt)
+            # 调用 LLM（使用统一的 LLMClient）
+            # 构造完整 prompt（system + user）
+            full_prompt = f"{system}\n\n{user_prompt}"
+            result = await self.llm_client.call(full_prompt)
 
-            if result is None:
+            if not result or not result.get("content"):
                 return SEOResult(
                     success=False,
                     error="LLM returned empty response",
@@ -156,7 +155,7 @@ Rules:
                 )
 
             # 解析 JSON
-            parsed = self._parse_response(result)
+            parsed = self._parse_response(result["content"])
 
             return SEOResult(
                 success=True,
@@ -170,45 +169,6 @@ Rules:
         except Exception as e:
             logger.error(f"SEO optimization failed: {e}")
             return SEOResult(success=False, error=str(e), duration=time.time() - start)
-
-    async def _call_llm(self, system: str, user: str) -> str | None:
-        """调用 LLM API"""
-        if not self.client:
-            raise RuntimeError("Client not initialized. Use async context manager.")
-
-        provider = self.llm_config.get("provider", "deepseek")
-        api_key = self.llm_config.get("api_key", "")
-        model = self.llm_config.get("model", "deepseek-chat")
-        base_url = self.llm_config.get("base_url", "https://api.deepseek.com")
-
-        # 根据 provider 选择 base_url
-        url_map = {
-            "deepseek": "https://api.deepseek.com",
-            "openai": "https://api.openai.com",
-            "qwen": "https://dashscope.aliyuncs.com/compatible-mode",
-        }
-        base_url = url_map.get(provider, base_url)
-
-        resp = await self.client.post(
-            f"{base_url}/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-                "temperature": 0.3,  # SEO 需要低温度，保持准确性
-                "max_tokens": 500,
-            },
-        )
-
-        if resp.status_code != 200:
-            logger.error(f"LLM API error: {resp.status_code} {resp.text}")
-            return None
-
-        data = resp.json()
-        return data["choices"][0]["message"]["content"]
 
     @staticmethod
     def _parse_response(text: str) -> dict:
@@ -244,3 +204,39 @@ Rules:
 
         logger.warning(f"Failed to parse SEO response: {text[:200]}")
         return {}
+
+
+# ============================
+# 扩展指南
+# ============================
+"""
+如何为 SEOProcessor 添加新的 LLM provider 支持：
+
+1. 在 `content_aggregator/clients/llm_client.py` 中添加新的 `_call_xxx()` 方法
+2. 在 `LLMClient.call()` 方法中添加新 provider 的路由逻辑
+3. 更新配置文件支持新 provider
+
+示例：添加 ERNIE 支持
+
+1. 在 `llm_client.py` 中添加：
+    ```python
+    async def _call_ernie(self, prompt: str) -> dict:
+        # ERNIE 特定逻辑（获取 access_token、构造请求等）
+        ...
+    ```
+
+2. 在 `call()` 方法中添加路由：
+    ```python
+    elif self.provider == "ernie":
+        return await self._call_ernie(prompt)
+    ```
+
+3. 更新 `config.yaml`：
+    ```yaml
+    llm:
+      provider: "ernie"
+      model: "ernie-4.0-turbo-8k"
+      api_key: "your-client-id"
+      api_secret: "your-client-secret"
+    ```
+"""
