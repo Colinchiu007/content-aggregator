@@ -170,6 +170,8 @@ class WangYiCollector(BaseCollector):
 
             articles.append({
                 "title": title,
+                "content": title,
+                "title": title,
                 "url": href,
                 "source": self.SOURCE_NAME,
                 "channel": self.CHANNELS.get(channel, channel),
@@ -196,6 +198,8 @@ class WangYiCollector(BaseCollector):
 
                 articles.append({
                     "title": title,
+                    "content": title,
+                "title": title,
                     "url": href,
                     "source": self.SOURCE_NAME,
                     "channel": self.CHANNELS.get(channel, channel),
@@ -218,6 +222,8 @@ class WangYiCollector(BaseCollector):
 
                 articles.append({
                     "title": title,
+                    "content": title,
+                "title": title,
                     "url": href,
                     "source": self.SOURCE_NAME,
                     "channel": self.CHANNELS.get(channel, channel),

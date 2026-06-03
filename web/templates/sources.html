@@ -57,15 +57,42 @@
     </div>
 </div>
 
+<!-- 热点源（可在线开关 + 独立采集） -->
+{% set hot_sources = [
+    {'type': 'douyin_hot', 'icon': '🔥', 'label': '抖音热点榜', 'desc': '抖音实时热榜（可免登录）'},
+    {'type': 'wangyi', 'icon': '📰', 'label': '网易新闻', 'desc': '网易新闻各频道'},
+    {'type': 'weibo_hot', 'icon': '📣', 'label': '微博热点', 'desc': '微博热搜榜（免登录）'},
+] %}
+{% for hs in hot_sources %}
+{% set src_cfg = sources_config.get(hs.type, {}) %}
+{% if src_cfg %}
+<div class="card" style="margin-bottom:12px;padding:16px">
+    <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:24px">{{ hs.icon }}</span>
+        <div style="flex:1">
+            <h3 style="margin:0">{{ hs.label }}</h3>
+            <p style="margin:4px 0 0;color:var(--text-muted);font-size:13px">{{ hs.desc }}</p>
+        </div>
+        <span class="badge badge-{{ 'success' if src_cfg.get('enabled', True) else 'muted' }}">
+            {{ '已启用' if src_cfg.get('enabled', True) else '已禁用' }}
+        </span>
+        <button class="btn btn-outline btn-sm" onclick="toggleHotSource('{{ hs.type }}')">
+            {{ '禁用' if src_cfg.get('enabled', True) else '启用' }}
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="collectHotSource('{{ hs.type }}')">
+            立即采集
+        </button>
+    </div>
+</div>
+{% endif %}
+{% endfor %}
+
 <!-- 其他数据源状态 -->
 {% set source_info = {
     'youtube': {'icon': '🎬', 'label': 'YouTube', 'desc': 'YouTube Data API v3，需要 API Key'},
     'twitter': {'icon': '🐦', 'label': 'X (Twitter)', 'desc': 'Twitter API v2，需要 Bearer Token'},
     'tiktok': {'icon': '🎵', 'label': 'TikTok', 'desc': 'TikTok Cookie API，需要登录 Cookie'},
     'douyin': {'icon': '📱', 'label': '抖音', 'desc': '抖音用户视频（需 Cookie 或开放平台 Key）'},
-    'douyin_hot': {'icon': '🔥', 'label': '抖音热点榜', 'desc': '抖音实时热榜（可免登录）'},
-    'wangyi': {'icon': '📰', 'label': '网易新闻', 'desc': '网易新闻各频道'},
-    'weibo_hot': {'icon': '📣', 'label': '微博热点', 'desc': '微博热搜榜（免登录）'},
     'xiaohongshu': {'icon': '📕', 'label': '小红书', 'desc': '小红书笔记采集，需要 Cookie'},
     'wechat': {'icon': '💬', 'label': '微信公众号', 'desc': '搜狗微信搜索或新榜 API'},
     'sitemap': {'icon': '🗺️', 'label': 'Sitemap', 'desc': '网站 sitemap.xml'},
@@ -150,6 +177,33 @@ async function deleteSource(name) {
         setTimeout(() => location.reload(), 500);
     } else {
         showToast(data.error || '删除失败', 'error');
+    }
+}
+
+async function toggleHotSource(type) {
+    const resp = await fetch(`/api/sources/hot/${type}/toggle`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.success) {
+        showToast(data.enabled ? '已启用' : '已禁用', 'success');
+        setTimeout(() => location.reload(), 500);
+    } else {
+        showToast(data.error || '操作失败', 'error');
+    }
+}
+
+async function collectHotSource(type) {
+    const fd = new FormData();
+    fd.append('rewrite', 'true');
+    fd.append('translate', '');
+    fd.append('formats', 'markdown');
+    fd.append('limit', '');
+    const resp = await fetch(`/api/collect/${type}`, { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (data.status === 'started') {
+        showToast('采集任务已启动，请前往「采集任务」页面查看进度', 'success');
+        setTimeout(() => location.href = '/tasks', 800);
+    } else {
+        showToast(data.error || '启动失败', 'error');
     }
 }
 </script>

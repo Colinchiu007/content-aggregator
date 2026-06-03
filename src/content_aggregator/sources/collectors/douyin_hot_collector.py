@@ -156,8 +156,13 @@ class DouyinHotCollector(BaseCollector):
                 if aweme_id:
                     video_url = f"https://www.douyin.com/video/{aweme_id}"
 
+            summary = f"抖音热榜第{rank}名，热度{hot_value:,}，相关视频{video_count}个{heat_label and f'（{heat_label}）' or ''}"
+            # 构建内容正文（热点榜无正文，用标题+热度信息作为 content）
+            content_text = f"{word}\n\n{summary}"
+
             results.append({
                 "title": word,
+                "content": content_text,
                 "url": video_url or f"https://www.douyin.com/search/{word}",
                 "source": self.SOURCE_NAME,
                 "rank": rank,
@@ -166,7 +171,7 @@ class DouyinHotCollector(BaseCollector):
                 "heat_label": heat_label,
                 "word": word,
                 "published_at": datetime.fromtimestamp(event_time) if event_time else datetime.now(),
-                "summary": f"抖音热榜第{rank}名，热度{hot_value:,}，相关视频{video_count}个{heat_label and f'（{heat_label}）' or ''}",
+                "summary": summary,
                 "metadata": {
                     "rank": rank,
                     "hot_value": hot_value,
@@ -250,8 +255,12 @@ class DouyinHotCollector(BaseCollector):
                 if aweme_id:
                     video_url = f"https://www.douyin.com/video/{aweme_id}"
 
+            summary = f"抖音热榜第{rank}名，热度{hot_value:,}，相关视频{video_count}个{heat_label and f'（{heat_label}）' or ''}"
+            content_text = f"{word}\n\n{summary}"
+
             results.append({
                 "title": word,
+                "content": content_text,
                 "url": video_url or f"https://www.douyin.com/search/{word}",
                 "source": self.SOURCE_NAME,
                 "rank": rank,
@@ -260,7 +269,7 @@ class DouyinHotCollector(BaseCollector):
                 "heat_label": heat_label,
                 "word": word,
                 "published_at": datetime.fromtimestamp(event_time) if event_time else datetime.now(),
-                "summary": f"抖音热榜第{rank}名，热度{hot_value:,}，相关视频{video_count}个{heat_label and f'（{heat_label}）' or ''}",
+                "summary": summary,
                 "metadata": {
                     "rank": rank,
                     "hot_value": hot_value,

@@ -130,6 +130,8 @@ class WeiboHotCollector(BaseCollector):
 
             results.append({
                 "title": word,
+                "content": word,
+                "title": word,
                 "url": f"https://s.weibo.com/weibo?q={word}",  # 搜索结果页
                 "source": self.SOURCE_NAME,
                 "rank": rank,
@@ -177,6 +179,8 @@ class WeiboHotCollector(BaseCollector):
             heat_label = {0: "", 1: "新", 2: "热", 3: "爆"}.get(flag, "")
 
             results.append({
+                "title": word,
+                "content": word,
                 "title": word,
                 "url": f"https://s.weibo.com/weibo?q={word}",
                 "source": self.SOURCE_NAME,
