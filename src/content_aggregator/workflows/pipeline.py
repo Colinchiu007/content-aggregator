@@ -942,6 +942,7 @@ class ContentPipeline:
                     entry["name"] = f"网易{ch.strip()}"
                     entry["max_items"] = limit
                     entries.append(entry)
+            return entries  # 网易特殊处理，不进入通用 list_key 循环
 
         # 抖音热点/微博热点：直接作为单个源（无子列表）
         if source_type in ("douyin_hot", "weibo_hot"):

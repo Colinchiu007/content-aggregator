@@ -84,8 +84,10 @@ class DouyinHotCollector(BaseCollector):
             "Accept": "application/json",
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
             "Referer": "https://www.douyin.com/discover",
-            "Cookie": self.config.get("cookie", ""),
         }
+        cookie = self.config.get("cookie")
+        if cookie:
+            headers["Cookie"] = cookie
 
         # 热榜 API 参数
         params = {
@@ -288,10 +290,10 @@ class DouyinHotCollector(BaseCollector):
         client = await self._get_client()
         await self._rate_limit_wait()
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Cookie": self.config.get("cookie", ""),
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        cookie = self.config.get("cookie")
+        if cookie:
+            headers["Cookie"] = cookie
 
         params = {
             "aweme_id": aweme_id,

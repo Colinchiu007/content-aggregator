@@ -75,6 +75,31 @@ sources:
     cookie: null
     client_key: null
     users: []
+
+  # 抖音热点榜（热榜，与 douyin 用户视频采集区分）
+  douyin_hot:
+    enabled: true
+    cookie: null
+    limit: 20
+    enable_anti_block: false
+
+  # 网易新闻
+  wangyi:
+    enabled: true
+    channels:
+      - news
+      - ent
+      - tech
+    limit: 10
+    enable_anti_block: false
+
+  # 微博热点（热搜榜）
+  weibo_hot:
+    enabled: true
+    limit: 30
+    include_detail: false
+    enable_anti_block: false
+
   xiaohongshu:
     cookie: null
     xhs_token: null
