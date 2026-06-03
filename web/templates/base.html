@@ -226,7 +226,119 @@
                     ws.send('ping');
                 }
             }, 30000);
+
+            // 初始化认证状态
+            initAuth();
         });
+
+        // ========================================================================
+        // 认证管理
+        // ========================================================================
+
+        let currentUser = null;
+
+        function initAuth() {
+            const token = localStorage.getItem('auth_token');
+            const userStr = localStorage.getItem('user_info');
+            
+            if (token && userStr) {
+                try {
+                    currentUser = JSON.parse(userStr);
+                    updateAuthUI(true);
+                    // 验证 token 是否仍然有效
+                    fetch('/api/auth/me', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    })
+                    .then(r => {
+                        if (!r.ok) {
+                            logout();
+                        }
+                    })
+                    .catch(() => {
+                        // 忽略网络错误
+                    });
+                } catch (e) {
+                    localStorage.removeItem('auth_token');
+                    localStorage.removeItem('user_info');
+                    updateAuthUI(false);
+                }
+            } else {
+                updateAuthUI(false);
+            }
+        }
+
+        function updateAuthUI(isLoggedIn) {
+            const userEl = document.getElementById('sidebar-user');
+            const loginEl = document.getElementById('sidebar-login');
+            
+            if (isLoggedIn && currentUser) {
+                userEl.style.display = 'block';
+                loginEl.style.display = 'none';
+                document.getElementById('user-username').textContent = currentUser.username || '用户';
+                document.getElementById('user-role').textContent = currentUser.role === 'admin' ? '管理员' : '用户';
+                document.getElementById('user-avatar').textContent = (currentUser.username || 'U').charAt(0).toUpperCase();
+            } else {
+                userEl.style.display = 'none';
+                loginEl.style.display = 'block';
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_info');
+            currentUser = null;
+            updateAuthUI(false);
+            showToast('已退出登录', 'info');
+            // 如果当前在受保护的页面，跳转到登录页
+            const protectedPaths = ['/settings', '/system-settings', '/compose', '/rewrite-strategies', '/tasks', '/scheduler'];
+            if (protectedPaths.some(p => window.location.pathname.startsWith(p))) {
+                window.location.href = '/login';
+            }
+        }
+
+        // 获取认证头
+        function getAuthHeaders() {
+            const token = localStorage.getItem('auth_token');
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
+        }
+
+        // 封装 fetch 自动注入 token 和处理 401
+        async function authFetch(url, options = {}) {
+            const headers = { ...options.headers, ...getAuthHeaders() };
+            
+            const resp = await fetch(url, { ...options, headers });
+            
+            // 处理 401 未授权
+            if (resp.status === 401) {
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('user_info');
+                showToast('登录已过期，请重新登录', 'error');
+                // 如果不是登录/注册页，跳转到登录页
+                if (!['/login', '/register'].includes(window.location.pathname)) {
+                    setTimeout(() => {
+                        window.location.href = '/login';
+                    }, 1000);
+                }
+                return resp;
+            }
+            
+            return resp;
+        }
+
+        // 覆盖原有的 apiPost 和 apiDelete 使用认证
+        async function apiPost(url, formData) {
+            const resp = await authFetch(url, { method: 'POST', body: formData });
+            return resp.json();
+        }
+
+        async function apiDelete(url) {
+            const resp = await authFetch(url, { method: 'DELETE' });
+            return resp.json();
+        }
     </script>
     {% block extra_js %}{% endblock %}
 </body>
