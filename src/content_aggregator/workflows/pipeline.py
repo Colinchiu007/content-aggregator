@@ -397,6 +397,9 @@ class ContentPipeline:
             "twitter": self._parse_single_config,
             "tiktok": self._parse_single_config,
             "douyin": self._parse_single_config,
+            "douyin_hot": self._parse_single_config,
+            "wangyi": self._parse_single_config,
+            "weibo_hot": self._parse_single_config,
             "xiaohongshu": self._parse_single_config,
             "wechat": self._parse_single_config,
             "sitemap": self._parse_single_config,
@@ -813,6 +816,28 @@ class ContentPipeline:
                         entry["name"] = f"YouTube搜索: {query.strip()}"
                         entry["max_items"] = search_limit
                         entries.append(entry)
+
+        # 网易新闻频道列表
+        if source_type == "wangyi":
+            channels = source_cfg.get("channels", ["news", "ent", "tech"])
+            limit = source_cfg.get("limit", 10)
+            for ch in channels:
+                if isinstance(ch, str) and ch.strip():
+                    entry = dict(source_cfg)
+                    entry["channels"] = [ch.strip()]
+                    entry["name"] = f"网易{ch.strip()}"
+                    entry["max_items"] = limit
+                    entries.append(entry)
+
+        # 抖音热点/微博热点：直接作为单个源（无子列表）
+        if source_type in ("douyin_hot", "weibo_hot"):
+            if source_cfg.get("enabled", True):
+                entry = dict(source_cfg)
+                entry["name"] = {"douyin_hot": "抖音热点榜", "weibo_hot": "微博热点"}.get(source_type, source_type)
+                entry["max_items"] = source_cfg.get("limit", 20)
+                entries.append(entry)
+                return entries
+            return []
 
         # 频道/用户/账号列表
         for list_key in ["channels", "users", "accounts", "sites", "endpoints"]:

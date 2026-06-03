@@ -363,8 +363,9 @@ async def page_index(request: Request):
     sources_config = CONFIG.get("sources", {})
     source_labels = {
         "rss": "RSS 订阅", "youtube": "YouTube", "twitter": "X (Twitter)",
-        "tiktok": "TikTok", "douyin": "抖音", "xiaohongshu": "小红书",
-        "wechat": "微信公众号", "sitemap": "Sitemap", "api": "自定义 API",
+        "tiktok": "TikTok", "douyin": "抖音", "douyin_hot": "抖音热点", "wangyi": "网易新闻",
+        "weibo_hot": "微博热点", "xiaohongshu": "小红书", "wechat": "微信公众号",
+        "sitemap": "Sitemap", "api": "自定义 API",
     }
     configured_count = 0  # 已配置（含启用+未启用）
     active_count = 0      # 活跃（当前启用的）
