@@ -318,6 +318,11 @@ if AUTH_ENABLED:
     app.include_router(auth_router)
     logger.info("已启用共享认证模块（/api/auth 路由）")
 
+# 微信发布路由
+from web.wechat_router import router as wechat_router
+app.include_router(wechat_router)
+logger.info("已启用微信发布路由（/api/wechat）")
+
 # Jinja2 全局函数
 def _formatTime(iso):
     if not iso:
@@ -569,6 +574,31 @@ async def page_system_settings(request: Request):
     return render_template("system-settings.html", {
         "request": request,
         "config": config,
+    })
+
+
+@app.get("/wechat-settings", response_class=HTMLResponse)
+async def page_wechat_settings(request: Request):
+    """微信发布设置页面"""
+    from wechat_publisher.theme import list_themes, load_theme
+    cfg_path = os.path.join(os.path.dirname(__file__), "..", "config", "wechat_publish.json")
+    try:
+        with open(cfg_path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except:
+        cfg = {"appid": "", "secret": "", "default_theme": "professional-clean"}
+    names = list_themes()
+    themes = []
+    for name in names:
+        try:
+            t = load_theme(name)
+            themes.append({"name": name, "display_name": t.name, "description": t.description})
+        except:
+            themes.append({"name": name, "display_name": name, "description": ""})
+    return render_template("wechat_settings.html", {
+        "request": request,
+        "config": cfg,
+        "themes": themes,
     })
 
 

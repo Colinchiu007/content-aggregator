@@ -22,6 +22,7 @@
         <button class="btn btn-outline" onclick="copyContent()">📋 复制改写内容</button>
         <button class="btn btn-primary" onclick="exportArticle('markdown')">导出 MD</button>
         <button class="btn btn-outline" onclick="exportArticle('pdf')">导出 PDF</button>
+        <button class="btn btn-success" onclick="openWeChatPublish()">✍️ 排版发布</button>
     </div>
 </div>
 
@@ -98,6 +99,7 @@
         <button class="btn btn-primary" onclick="exportArticle('markdown')">导出 MD</button>
         <button class="btn btn-outline" onclick="exportArticle('html')">导出 HTML</button>
         <button class="btn btn-outline" onclick="exportArticle('pdf')">导出 PDF</button>
+        <button class="btn btn-success" onclick="openWeChatPublish()">✍️ 排版发布</button>
     </div>
 </div>
 
@@ -129,6 +131,47 @@
 </div>
 {% endif %}
 {% endblock %}
+
+{# ===== 微信排版发布弹窗 ===== #}
+<style>
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;display:none;align-items:center;justify-content:center}
+.modal-overlay.active{display:flex}
+.modal-content{background:#fff;border-radius:12px;padding:0;width:90%;max-width:720px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.2)}
+.modal-header{padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+.modal-header h3{font-size:16px;margin:0}
+.modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:#999}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.modal-footer{padding:14px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:8px}
+.theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin:12px 0}
+.theme-option{padding:10px 12px;border:2px solid #eee;border-radius:8px;cursor:pointer;text-align:center;transition:all .15s;font-size:13px}
+.theme-option:hover{border-color:var(--primary);background:#f0f7ff}
+.theme-option.selected{border-color:var(--primary);background:#e6f4ff}
+.theme-option .theme-label{font-weight:600}
+.theme-option .theme-desc{font-size:11px;color:#999;margin-top:2px}
+#preview-area{border:1px solid #eee;border-radius:8px;padding:16px;min-height:200px;max-height:400px;overflow-y:auto;background:#fafafa;font-size:14px;line-height:1.75;margin-top:12px}
+#preview-area.loading{display:flex;align-items:center;justify-content:center;color:#999}
+.preview-bar{display:flex;gap:8px;align-items:center;margin:12px 0}
+.config-notice{background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:10px 14px;font-size:13px;color:#8c6f00;margin-bottom:12px}
+</style>
+<div class="modal-overlay" id="wechatPublishModal">
+<div class="modal-content">
+<div class="modal-header"><h3>✍️ 排版发布到微信</h3><button class="modal-close" onclick="closeWeChatPublish()">&times;</button></div>
+<div class="modal-body">
+<div id="publish-config-notice" class="config-notice" style="display:none">⚠️ 未配置微信公众号 API，只能预览排版效果。<a href="/settings">前往设置 →</a></div>
+<label style="font-weight:600;font-size:14px">选择排版主题</label>
+<div class="theme-grid" id="themeGrid">加载中...</div>
+<div class="preview-bar">
+<select id="themeSelect" onchange="onThemeChange()" style="flex:2"></select>
+<button class="btn btn-outline" onclick="loadPreview()" style="flex:0">预览</button>
+</div>
+<div id="preview-area" class="loading">选择主题后点击「预览」查看排版效果</div>
+</div>
+<div class="modal-footer">
+<button class="btn btn-outline" onclick="closeWeChatPublish()">取消</button>
+<button class="btn btn-success" id="publishToWeChatBtn" onclick="publishToWeChat()">📤 发布到微信草稿箱</button>
+</div>
+</div>
+</div>
 
 {% block extra_js %}
 <script>
@@ -221,5 +264,118 @@
             if (data.task_id) showToast('导出任务已启动', 'info');
         }
     }
+
+    // ---- 微信排版发布 ----
+    let selectedTheme = 'professional-clean';
+    const themes = {};
+
+    async function openWeChatPublish() {
+        document.getElementById('wechatPublishModal').classList.add('active');
+        document.getElementById('preview-area').className = 'loading';
+        document.getElementById('preview-area').textContent = '加载主题列表...';
+        
+        // Check config
+        const cfgResp = await fetch('/api/wechat/config');
+        const cfg = await cfgResp.json();
+        if (!cfg.configured) {
+            document.getElementById('publish-config-notice').style.display = 'block';
+            document.getElementById('publishToWeChatBtn').disabled = true;
+        } else {
+            document.getElementById('publish-config-notice').style.display = 'none';
+            document.getElementById('publishToWeChatBtn').disabled = false;
+        }
+        
+        // Load themes
+        const resp = await fetch('/api/wechat/themes');
+        const data = await resp.json();
+        const grid = document.getElementById('themeGrid');
+        const sel = document.getElementById('themeSelect');
+        sel.innerHTML = '';
+        grid.innerHTML = '';
+        data.themes.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.name;
+            opt.textContent = t.display_name;
+            sel.appendChild(opt);
+            
+            const card = document.createElement('div');
+            card.className = 'theme-option' + (t.name === selectedTheme ? ' selected' : '');
+            card.dataset.theme = t.name;
+            card.innerHTML = `<div class="theme-label">${t.display_name}</div><div class="theme-desc">${(t.description||'').slice(0,30)}</div>`;
+            card.onclick = () => { selectTheme(t.name); };
+            grid.appendChild(card);
+            themes[t.name] = t;
+        });
+        selectedTheme = cfg.default_theme || 'professional-clean';
+        sel.value = selectedTheme;
+        
+        // Auto-preview after loading themes
+        loadPreview();
+    }
+
+    function closeWeChatPublish() {
+        document.getElementById('wechatPublishModal').classList.remove('active');
+    }
+
+    function selectTheme(name) {
+        selectedTheme = name;
+        document.getElementById('themeSelect').value = name;
+        document.querySelectorAll('.theme-option').forEach(c => c.classList.remove('selected'));
+        const card = document.querySelector(`.theme-option[data-theme="${name}"]`);
+        if (card) card.classList.add('selected');
+    }
+
+    function onThemeChange() {
+        const name = document.getElementById('themeSelect').value;
+        selectTheme(name);
+    }
+
+    async function loadPreview() {
+        const area = document.getElementById('preview-area');
+        area.className = 'loading';
+        area.textContent = '排版中...';
+        try {
+            const fd = new FormData();
+            fd.append('theme', selectedTheme);
+            const resp = await fetch('/api/wechat/preview/' + ARTICLE_ID, {
+                method: 'POST', body: fd
+            });
+            if (!resp.ok) throw new Error('排版失败');
+            const result = await resp.json();
+            area.className = '';
+            area.innerHTML = result.html;
+        } catch (e) {
+            area.className = 'loading';
+            area.textContent = '预览失败: ' + e.message;
+        }
+    }
+
+    async function publishToWeChat() {
+        const btn = document.getElementById('publishToWeChatBtn');
+        btn.disabled = true;
+        btn.textContent = '发布中...';
+        try {
+            const fd = new FormData();
+            fd.append('theme', selectedTheme);
+            const resp = await fetch('/api/wechat/publish/' + ARTICLE_ID, {
+                method: 'POST', body: fd
+            });
+            if (!resp.ok) {
+                const err = await resp.json();
+                throw new Error(err.detail || '发布失败');
+            }
+            const result = await resp.json();
+            showToast('✅ 已发布到微信公众号草稿箱!', 'success');
+        } catch (e) {
+            showToast('发布失败: ' + e.message, 'error');
+        }
+        btn.disabled = false;
+        btn.textContent = '📤 发布到微信草稿箱';
+    }
+
+    // Close modal on overlay click
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('modal-overlay')) closeWeChatPublish();
+    });
 </script>
 {% endblock %}

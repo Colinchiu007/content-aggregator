@@ -23,8 +23,14 @@ llm:
     base_url: https://token.sensenova.cn/v1
     api_key: sk-TLoBvI4lAXPwswPBHLyvXu7fGNAKBOnD
     model_id: deepseek-v4-flash
+    is_default: false
+  - id: builtin-route
+    name: 内置路由
+    base_url: http://127.0.0.1:19000/proxy/llm
+    api_key: ""
+    model_id: qclaw/modelroute
     is_default: true
-  default_model_id: deepseek-v4
+  default_model_id: builtin-route
 http:
   timeout: 30
   max_retries: 3
