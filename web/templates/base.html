@@ -240,6 +240,8 @@
         function initAuth() {
             const token = localStorage.getItem('auth_token');
             const userStr = localStorage.getItem('user_info');
+            const publicPaths = ['/login', '/register'];
+            const isPublic = publicPaths.some(p => window.location.pathname === p);
             
             if (token && userStr) {
                 try {
@@ -252,6 +254,9 @@
                     .then(r => {
                         if (!r.ok) {
                             logout();
+                            if (!isPublic) {
+                                window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+                            }
                         }
                     })
                     .catch(() => {
@@ -261,9 +266,16 @@
                     localStorage.removeItem('auth_token');
                     localStorage.removeItem('user_info');
                     updateAuthUI(false);
+                    if (!isPublic) {
+                        window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+                    }
                 }
             } else {
                 updateAuthUI(false);
+                // 未登录且不在公开页面时重定向到登录页
+                if (!isPublic) {
+                    window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+                }
             }
         }
 

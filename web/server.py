@@ -436,11 +436,50 @@ async def page_index(request: Request):
             "count": enabled,
         })
 
+    # 增强统计：改写数、今日采集数、总字数、来源分布
+    all_articles = recent
+    total_articles = all_articles['total']
+    rewritten_count = 0
+    today_count = 0
+    total_words = 0
+    from datetime import datetime, timezone
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    source_dist = {}
+    for src in sources_stats:
+        # get_all per source to count
+        src_arts = article_store.get_all(per_page=1, source=src['name'])
+        source_dist[src['name']] = src['count'] if src.get('count') else src_arts.get('total', 0)
+    # Iterate articles with pagination
+    pg = 1
+    while True:
+        batch = article_store.get_all(page=pg, per_page=200)
+        items = batch.get('items', batch.get('articles', []))
+        if not items:
+            break
+        for a in items:
+            total_words += len(a.get('content', '') or '')
+            meta = a.get('metadata') or {}
+            if meta.get('rewritten'):
+                rewritten_count += 1
+            ct = a.get('collected_at') or ''
+            try:
+                if ct and datetime.fromisoformat(ct.replace('Z', '+00:00')) >= today_start:
+                    today_count += 1
+            except:
+                pass
+        if len(items) < 200:
+            break
+        pg += 1
+
     return render_template("index.html", {
         "request": request,
         "sources_stats": sources_stats,
         "recent_articles": recent["items"][:5],
-        "total_articles": article_store.get_all()["total"],
+        "total_articles": total_articles,
+        "rewritten_count": rewritten_count,
+        "today_count": today_count,
+        "total_words": total_words,
+        "source_dist": json.dumps(source_dist, ensure_ascii=False),
         "configured_sources": configured_sources,
         "configured_count": configured_count,
         "active_count": active_count,

@@ -18,45 +18,55 @@
 <div class="stats-grid">
     <div class="stat-card">
         <div class="stat-value">{{ total_articles }}</div>
-        <div class="stat-label">文章总数</div>
+        <div class="stat-label">📄 文章总数</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ configured_count }}</div>
-        <div class="stat-label">已配置数据源</div>
+        <div class="stat-value">{{ rewritten_count }}</div>
+        <div class="stat-label">✨ 已改写</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ active_count }}</div>
-        <div class="stat-label">活跃来源</div>
+        <div class="stat-value">{{ today_count }}</div>
+        <div class="stat-label">📅 今日采集</div>
     </div>
     <div class="stat-card">
-        <div class="stat-value">{{ tasks|selectattr('status', 'eq', 'running')|list|length }}</div>
-        <div class="stat-label">运行中任务</div>
+        <div class="stat-value">{{ '{:,}'.format(total_words) }}</div>
+        <div class="stat-label">📏 总字数</div>
     </div>
 </div>
 
 <div class="two-col">
-    <!-- 数据源状态 -->
+    <!-- 来源分布 -->
     <div class="card">
         <div class="card-header">
-            <span class="card-title">🔌 数据源</span>
-            <a href="/sources" class="btn btn-outline btn-sm">管理</a>
+            <span class="card-title">📊 来源分布</span>
+            <a href="/articles" class="btn btn-outline btn-sm">全部文章</a>
         </div>
-        {% if configured_sources %}
-        <div class="source-grid">
-            {% for src in configured_sources %}
-            <div class="source-card">
-                <h3>{{ src.label }}</h3>
-                <p>{{ src.count }} 个源已启用</p>
-            </div>
-            {% endfor %}
+        <div id="source-chart" style="padding:8px 0">
+            <script>
+            (function() {
+                const dist = {{ source_dist|safe }};
+                const colors = ['#667eea','#764ba2','#f093fb','#4facfe','#43e97b','#f5576c','#fa709a','#a18cd1','#fbc2eb','#ffecd2'];
+                let i = 0;
+                const total = Object.values(dist).reduce((a,b)=>a+b, 0);
+                for (const [key, val] of Object.entries(dist)) {
+                    if (val === 0) continue;
+                    const pct = (val / total * 100).toFixed(1);
+                    document.write(`
+                        <div style="margin-bottom:10px">
+                            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+                                <span>${key}</span>
+                                <span>${val} (${pct}%)</span>
+                            </div>
+                            <div style="height:8px;background:#eee;border-radius:4px;overflow:hidden">
+                                <div style="height:100%;width:${pct}%;background:${colors[i % colors.length]};border-radius:4px;transition:width 0.3s"></div>
+                            </div>
+                        </div>
+                    `);
+                    i++;
+                }
+            })();
+            </script>
         </div>
-        {% else %}
-        <div class="empty">
-            <div class="empty-icon">🔌</div>
-            <p>暂无已配置数据源</p>
-            <a href="/sources" class="btn btn-primary btn-sm" style="margin-top:12px">配置数据源</a>
-        </div>
-        {% endif %}
     </div>
 
     <!-- 实时任务 -->

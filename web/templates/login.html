@@ -137,7 +137,9 @@
             })
             .then(r => {
                 if (r.ok) {
-                    window.location.href = '/';
+                    // 登录成功，跳转到 redirect 参数指定的页面或首页
+                    const params = new URLSearchParams(window.location.search);
+                    window.location.href = params.get('redirect') || '/';
                 } else {
                     localStorage.removeItem('auth_token');
                 }
@@ -182,7 +184,9 @@
                             localStorage.setItem('user_info', JSON.stringify(user));
                         }
                     } catch (e) { /* 忽略 */ }
-                    window.location.href = '/';
+                    // 登录成功，跳转到 redirect 参数指定的页面或首页
+                    const params = new URLSearchParams(window.location.search);
+                    window.location.href = params.get('redirect') || '/';
                 } else {
                     errorEl.textContent = data.detail || '登录失败，请检查用户名和密码';
                     errorEl.classList.add('show');

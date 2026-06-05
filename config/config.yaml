@@ -17,8 +17,14 @@ llm:
     base_url: https://token.sensenova.cn/v1
     api_key: sk-TLoBvI4lAXPwswPBHLyvXu7fGNAKBOnD
     model_id: sensenova-6.7-flash-lite
+    is_default: false
+  - id: deepseek-v4
+    name: deepseek-v4-flash
+    base_url: https://token.sensenova.cn/v1
+    api_key: sk-TLoBvI4lAXPwswPBHLyvXu7fGNAKBOnD
+    model_id: deepseek-v4-flash
     is_default: true
-  default_model_id: sensenova-67-flash-lite
+  default_model_id: deepseek-v4
 http:
   timeout: 30
   max_retries: 3
