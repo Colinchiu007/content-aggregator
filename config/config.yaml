@@ -6,29 +6,23 @@ llm:
   retry: 3
   max_concurrency: 3
   models:
-  - id: ????
-    name: ????
-    base_url: https://api.test.com
-    api_key: enc:Z0FBQUFBQnFJQ1pNYXpsdW1Zd0N4enhFTFJGSE9XZWtRWFNSQjM5RFA5Z3BIbXNRdkgzazEtZHgtbVNxUDI1dXhTMWROTW5KOWRLc3Vpc29FOGdsUDFDWVlCVm1wclFqUk1WWTJfRWtoUXFuQ0xncmc5SmVvNmxGbExOSDFVM0tZMjhfVjJKLVQtTlB6WC1HN2h0OXFCdHlQMTY5a210ZEVPVTBad0hlLXVpT1MyQWNfbmE0YUxHU2xBY2VZdGRaaHpQWHBTdHBHeHIzYjd2dEl3YlplWUpfN3BBZXRUUjFFU2w1YzZnbFExUkd3WUM3WEN3eVZWS045bHRmV3E4UFVFYVowaXk1S3cxYnZEQ0VLNDBHZEpEY2NwRzJfVEFRT0VOM29uRTBwU003M0VhMW5VdTRNYU09
-    model_id: test-model-1
-    is_default: false
-  - id: ????-2
+  - id: sensenovacn
     name: sensenova.cn
     base_url: https://token.sensenova.cn/v1
-    api_key: enc:Z0FBQUFBQnFJQ1pNaGJ3U0ZOYjRRNkhRbnplamlEMlJEQjNTUFF6SUFFY1FkeXdOS0dWdm1GYVhGRkZ1RFdfZUJMcjg4YWlFSFg1R2NVYnBuNzJtNFp0LVNEUENoTGp5bm9ZRFlLaUI2SVF2Q2tnUGxud1dYVURKZWg2VndwbG5xRUNFZTVWa2lES29qNjlMOFB6VDFQdmRmMEcxaXY4SGp0UFpnRm9FekVVNG9Md0xrRWxwdUJYakkySGMtQjZjXzFEd1pIVFBiU190U2ZQQl9XNW5qcHJ0WUtHM3AxQVF5MDRldGFVcnNETmluOTlTQWdLa28zb1V3UXJJN1hpWGRMM3NyLXo5WUcwU1VQYnZiUGp4Vk1nMTM4SnpvUkN5MWhBU3BoNHE4Vy16N3FXS1ZGZU1YelZtM2N2dWFDaGVCaGRnWTJ4ay1yNzM0Y190dU9MV1c3eG4xbnlKVFFobVBRPT0=
+    api_key: sk-TLoBvI4lAXPwswPBHLyvXu7fGNAKBOnD
     model_id: deepseek-v4-flash
-    is_default: true
+    is_default: false
   - id: sensenova-67-flash-lite
     name: sensenova-6.7-flash-lite
     base_url: https://token.sensenova.cn/v1
-    api_key: enc:Z0FBQUFBQnFJQ1pNTTVWUHRsQ1pRQVNLTHczTEMtbDRPaEpMSlNmYVVBX1dlcHZPdG14ZTdvUW9PSEpaRHMyWTkybDVQaXJLQ2t2V0RPcW5wODY2ekdNQ2RLQ1Rra0xMZlpEVzBkZkZaWXE5YmN5bjV1aDlVcTZuUUhjbExNTVZwOGdsMnh1Sm41aEtXeVN0N0hpbVZZS3g4anVMRl81TEQxZnlNYXlER0xPQVNmVnA0QXVwdldLU1o3OHVzcVBrSjFtNnY0OUhleWhhNHZPeGh1WlhCQzdZcV9CYk5zTTZKS0lqTjBpUGpBTmhRRF9HQ1YtRnNIQ0dud01IcFZVODJTQ3E1a1VTQjRVZ3l6czUyVF9wamFoWGVBYnMyXzJhU0dhOUU0dkJ4bjQ3UV9Tb0J6TnB1ZHREWm5zY1pnR3lVb2VuNjRlUm9rZWgtY284TE1TWlUxbzV6M0JVWTQ2LW9nPT0=
+    api_key: sk-TLoBvI4lAXPwswPBHLyvXu7fGNAKBOnD
     model_id: sensenova-6.7-flash-lite
-    is_default: false
-  default_model_id: ????-2
+    is_default: true
+  default_model_id: sensenova-67-flash-lite
 http:
   timeout: 30
   max_retries: 3
-  proxy: ''
+  proxy: ""
   proxy_fallback: skip
 database:
   path: ./data/content.db
@@ -51,7 +45,7 @@ sources:
     url: https://sspai.com/feed
     enabled: true
   youtube:
-    api_key: enc:Z0FBQUFBQnFJQ1pNSFUxMFBRWkhYR2wwQUwxNHRTS0VQZ3BBV295amxJZ01TcmN0R1M5Tnd6S0xtbWNRNndUVzFhbkFXUVBsZTZOUU9oR0RkZEVvVC1LTjFHd2dMYUhFVVZRVHdmZEZ3aUJlNk1kOHZxMXpnZGdSakFoWVc3MGJKLXlqa2ljc3lBeGtwc0F5NElvemdxbllfd1RwVjlnUmIzMF9sV05WZGVfcm1ZeXVwcC1odGJFZ1p6b0FCbGVsTVFxVDB6NlNFQllWRFZobGJSdVBCN0lrcGs2dWc0dE1wQlQ4aG8tZEUtUk03TjN2TUNXVzBZVFdoajl3UFJ4Z1FGYlZWN2s4VUZhZ2hXeUVKVmh1eE82WUs4VzhrQVNLdWhSMmQ2bkg3cHhfY3Y2VHpGZm1tdmd4ZWJtOTBXekdBUDZhd2dleWpqUkFFb2JDZm9tcUJvc2hRalNEcXA3VlRBPT0=
+    api_key: enc:Z0FBQUFBQnFJWGw5blVlZEo5cWxITHdVbjNDN1dVb2lFU296UU85eUhSXzhmUXVodE1lTEJjSG5lSTloNUhvWUdBX1ltc01QbU1OTmp0dXpIeV8wYkpHRi16ZElZVFMtcDFSeU43NW9RcDJoUzVQU1prRGljNVRzdDAzRlU5anI3UHhOSHB1MWZ5RVBPMnZsd3QxbXJxUkdHVHJ5MW9vX0ZacjFhTmc5UGJuUzdQXzE1WkZVaFJkcVhOU1pKTWw3VzVfSlZuXzFEc3JXelc1ZmdTRTBIMEx3ZkxtWnU4Z2hwVnlqT3JIQ05hbVVFdWdndWhGSW1nT3QtdEM0WUhkQTdqTTg4SjV0UzFTTGtsZXdDTWJNUFdpa3RVQnNwRUJDOTBTYTY1TzdfN0tMYWxYRURXdE9wX05QLWZTb2JRVERvenBLT2ltZEJuV2wzVEMzZmhQZEpfaWVPNDY2YXI0VTFpdWhTbmI5UXBBdzNFY0FYRkZHN3N4UnFiSWpMcHBleXQybHFxNmhGcG9pcWxjSEVZRHp4Nk5nNVZJTHJWUjhNLVVKTHh0NndrdFkyQUZpTFdPYkpqZlRYVW1uSndlWWVfdlZQRWVrZ0M3MU03QW8weXhfLTNBWE00eHljMW9rZWpjeHpEZHQ1M1JLNTRxeUxFOFhydV9yci1SYXY3cUdGQ2FOLXdoN245X3Y0RV95U1NKVnh3S25FUkpYeDBPM25acUg3Sjh3ZXlQODQzcldnWVI5TjZEQkJTbFE0VnpiTlNlU2pvOXhKRFA1SUV1UWNJQXZjTmQzNzdWZUlBZVhad3Fnd1UxcGxQRkRuODd0ZU43ZTFUZkZZbXlqRkVnNzI2TXpCbzBnWGZFay1ibnhfOENpUHNPMFJuLVdabmEzZE43ZDZ2R0FHTWl6bk1wYWE5QkVGQ21fVjY5NWZuVlFmMy1VMzhEWHBFVnc2elF2N0l3ZUotVE9oWmJ5RGFsYllBPT0=
     channels:
     - UCtR5okwgTMghi_uyWvbloEg
     search_queries:
@@ -77,19 +71,19 @@ sources:
   wechat:
     api_key: null
     accounts: []
-  # 抖音热点榜（热榜，与 douyin 用户视频采集区分）
   douyin_hot:
     enabled: true
     cookie: null
     limit: 20
     enable_anti_block: false
-  # 网易新闻
   wangyi:
     enabled: true
-    channels: ["news", "ent", "tech"]
+    channels:
+    - news
+    - ent
+    - tech
     limit: 10
     enable_anti_block: false
-  # 微博热点（热搜榜）
   weibo_hot:
     enabled: true
     limit: 30
@@ -160,11 +154,13 @@ scheduler:
     enabled: false
 asr:
   models: []
-
-# 共享认证配置
+sensitive_filter:
+  enabled: false
+dedup_filter:
+  enabled: false
 auth:
-  jwt_secret: "content-aggregator-jwt-secret-change-in-production"
+  jwt_secret: enc:Z0FBQUFBQnFJWGw5SHlXdHpMY3E4T1Z2LXNRRTBjdVVNbU9laHZDZHNycVBHa3g5eFo0djZhQVFNTmJrWWpRQThfd2JXMUtqdE83c29FYnVUNmpodjE2NG1NM2hYMHI4M3FXZHpqb0Frci1XdEdWNFhnd0hRcDhTS2VuUVJUcktkdExpcGpfLUdfdlZtTUsyNTBsY3ZzcnpvbFZ2ZGtmM2xSa3I3ZkxSQXRFaUYydEtIdUxxclJnPQ==
   database_type: sqlite
   sqlite_path: ./data/user.db
-  access_token_expire_minutes: 10080  # 7 天
+  access_token_expire_minutes: 10080
   refresh_token_expire_days: 30

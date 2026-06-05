@@ -1487,6 +1487,9 @@ async def api_collect_wangyi(
     limit: int | None = Form(default=None),
 ):
     """触发网易新闻采集（需要登录）"""
+    # DEBUG: 打印请求头帮助定位 422
+    ct = request.headers.get("content-type", "NONE")
+    logger.warning(f"[DEBUG] wangyi collect content-type={ct}")
     user = await require_auth(request)
     task_id = task_manager.create("collect_wangyi", "网易新闻采集")
     fmt_list = [f.strip() for f in formats.split(",") if f.strip()] if formats else ["markdown"]
@@ -1990,3 +1993,19 @@ async def api_set_default_model(model_type: str, model_id: str, request: Request
     config[model_type]["default_model_id"] = model_id
     save_config(config)
     return {"status": "success", "message": "默认模型已更新"}
+
+
+# ========================================================================
+# 认证页面路由
+# ========================================================================
+
+@app.get("/login", response_class=HTMLResponse)
+async def page_login(request: Request):
+    """登录页面"""
+    return render_template("login.html", {"request": request})
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def page_register(request: Request):
+    """注册页面"""
+    return render_template("register.html", {"request": request})

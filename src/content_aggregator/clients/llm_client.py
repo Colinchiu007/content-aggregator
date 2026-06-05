@@ -94,6 +94,7 @@ class LLMClient:
         self.temperature = config.get("temperature", 0.7)
         self.retry = config.get("retry", 3)
         self.timeout = config.get("timeout", 120)
+        self.http_proxy = config.get("http_proxy", "") or ""
         
         # HTTP 客户端（延迟初始化）
         self._client: httpx.AsyncClient | None = None
@@ -105,7 +106,12 @@ class LLMClient:
     def client(self) -> httpx.AsyncClient:
         """获取 HTTP 客户端（延迟初始化）"""
         if self._client is None:
-            self._client = httpx.AsyncClient(timeout=self.timeout)
+            # 有代理则用代理，无代理则直连（trust_env=False 避免环境变量干扰）
+            kwargs = {"timeout": self.timeout, "trust_env": False}
+            if self.http_proxy:
+                kwargs["proxy"] = self.http_proxy
+                logger.info(f"[LLMClient] Using configured proxy: {self.http_proxy}")
+            self._client = httpx.AsyncClient(**kwargs)
         return self._client
 
     async def close(self):

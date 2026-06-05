@@ -1,63 +1,61 @@
-"""
-网易新闻采集器
+﻿"""
+网易新闻采集器 - 基于 AIMedia 原始实现
 
-移植自 article-spider (https://github.com/Anning01/article-spider)
-适配 PROJECT-001 的 BaseCollector 接口
-
-支持频道：
-- 新闻 (news)
-- 娱乐 (ent)
-- 科技 (tech)
-- 体育 (sports)
-- 财经 (finance)
+使用网易 JSONP 接口（去掉 callback 包装即是 JSON）
 """
 
 import asyncio
+import json
 import logging
+import re
 from datetime import datetime
 from typing import Any
+
+import httpx
+from lxml import etree
 
 from content_aggregator.sources.collectors.base_collector import BaseCollector, SourceResult
 from content_aggregator.anti_block import AntiBlockManager, create_default_manager
 
 logger = logging.getLogger(__name__)
 
+# 网易频道 JSONP 接口（去掉 callback 参数可获取纯 JSON）
+CHANNEL_URLS = {
+    "news": "https://news.163.com/special/cm_yaowen20200213/",      # 要闻
+    "world": "https://news.163.com/special/cm_war/",                # 国际
+    "guonei": "https://news.163.com/special/cm_guonei/",           # 国内
+    "tech": "https://tech.163.com/special/00097UHL/tech_datalist.js",  # 科技
+    "ent": "https://ent.163.com/special/000381Q1/newsdata_movieidx.js", # 娱乐
+    "finance": "https://money.163.com/special/00259K2L/data_stock_redian.js", # 财经
+    "edu": "https://edu.163.com/special/002987KB/newsdata_edu_hot.js",      # 教育
+    "baby": "https://baby.163.com/special/003687OS/newsdata_hot.js",        # 母婴
+}
+
+# 请求头
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Referer": "https://news.163.com/",
+}
+
 
 class WangYiCollector(BaseCollector):
-    """网易新闻采集器"""
+    """网易新闻采集器（基于 AIMedia 原始实现）"""
 
     SOURCE_NAME = "wangyi"
-    RATE_LIMIT = 3.0  # 网易反爬较严，间隔拉长
-
-    # 频道映射
-    CHANNELS = {
-        "news": "新闻",
-        "ent": "娱乐",
-        "tech": "科技",
-        "sports": "体育",
-        "finance": "财经",
-    }
-
-    # 各频道列表页 URL 模板
-    CHANNEL_URLS = {
-        "news": "https://news.163.com/",
-        "ent": "https://ent.163.com/",
-        "tech": "https://tech.163.com/",
-        "sports": "https://sports.163.com/",
-        "finance": "https://money.163.com/",
-    }
+    RATE_LIMIT = 2.0
 
     def __init__(
         self,
+        name: str = "wangyi",
+        config: dict | None = None,
         proxy: str | None = None,
         timeout: int = 30,
-        config: dict | None = None,
         enable_anti_block: bool = False,
         **kwargs,
     ):
         super().__init__(proxy=proxy, timeout=timeout, config=config, **kwargs)
-        self.channels = self.config.get("channels", ["news", "ent", "tech"])
-        self.limit = self.config.get("limit", 10)
+        self.name = name
+        self.limit = self.config.get("limit", 20)
         self.enable_anti_block = enable_anti_block
         self.anti_block_manager: AntiBlockManager | None = None
 
@@ -70,25 +68,26 @@ class WangYiCollector(BaseCollector):
         import time
         start = time.time()
 
-        results: list[dict] = []
-        channels_to_fetch = kwargs.get("channels", self.channels)
+        channels = self.config.get("channels", ["news"])
+        results = []
 
-        for channel in channels_to_fetch:
-            if channel not in self.CHANNEL_URLS:
-                logger.warning(f"[网易新闻] 未知频道: {channel}，跳过")
+        for channel in channels:
+            if not self.config.get("enabled", True):
                 continue
 
-            list_url = self.CHANNEL_URLS[channel]
-            logger.info(f"[网易新闻] 开始采集频道: {self.CHANNELS.get(channel, channel)} ({list_url})")
+            url = CHANNEL_URLS.get(channel)
+            if not url:
+                logger.warning(f"[网易新闻] 未知频道: {channel}")
+                continue
 
             try:
-                articles = await self._fetch_channel(channel, list_url)
+                articles = await self._fetch_channel(url, channel)
                 results.extend(articles)
-                logger.info(f"[网易新闻] 频道 {channel} 采集到 {len(articles)} 篇文章")
+                logger.info(f"[网易新闻] {channel} 采集到 {len(articles)} 篇")
             except Exception as e:
-                logger.warning(f"[网易新闻] 频道 {channel} 采集失败: {e}")
+                logger.warning(f"[网易新闻] {channel} 采集失败: {e}")
 
-        # 去重（按 URL）
+        # 去重
         seen_urls: set[str] = set()
         deduped: list[dict] = []
         for article in results:
@@ -100,186 +99,97 @@ class WangYiCollector(BaseCollector):
         if self.limit > 0:
             deduped = deduped[: self.limit]
 
+        # 如果配置了 fetch_full_content，则获取每篇文章的完整正文
+        if self.config.get("fetch_full_content", True):
+            logger.info(f"[网易新闻] 开始获取 {len(deduped)} 篇文章的完整正文...")
+            for article in deduped:
+                try:
+                    detail = await self._fetch_article_detail(article["url"])
+                    if detail and detail.get("content"):
+                        article["content"] = detail["content"]
+                        logger.info(f"[网易新闻] 已获取正文: {article['title'][:30]}... ({len(detail['content'])} 字符)")
+                except Exception as e:
+                    logger.warning(f"[网易新闻] 获取正文失败 {article['url']}: {e}")
+
         logger.info(f"[网易新闻] 总计采集 {len(deduped)} 篇（去重后）")
         return deduped
 
-    async def _fetch_channel(self, channel: str, list_url: str) -> list[dict]:
-        """采集单个频道"""
-        if self.enable_anti_block and self.anti_block_manager:
-            return await self._fetch_channel_anti_block(channel, list_url)
-        else:
-            return await self._fetch_channel_normal(channel, list_url)
-
-    async def _fetch_channel_normal(self, channel: str, list_url: str) -> list[dict]:
-        """普通模式采集频道"""
+    async def _fetch_channel(self, url: str, channel: str) -> list[dict]:
+        """通过 JSONP 接口采集频道新闻列表"""
         client = await self._get_client()
         await self._rate_limit_wait()
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        }
-
-        response = await client.get(list_url, headers=headers)
+        # 网易 JSONP 接口，加 callback 参数
+        params = {"callback": "data_callback"}
+        response = await client.get(url, params=params, headers=HEADERS)
         response.raise_for_status()
-        html = response.text
+        text = response.text
 
-        return self._parse_list_html(html, channel)
+        # 去掉 JSONP 包装：data_callback(...) 
+        if text.startswith("data_callback("):
+            text = text[len("data_callback("):]
+            # 去掉末尾的 );
+            if text.rstrip().endswith(");"):
+                text = text.rstrip()[:-2].rstrip()
+            elif text.rstrip().endswith(")"):
+                text = text.rstrip()[:-1]
 
-    async def _fetch_channel_anti_block(self, channel: str, list_url: str) -> list[dict]:
-        """防封模式采集频道"""
-        import asyncio
-        loop = asyncio.get_event_loop()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            logger.warning(f"[网易新闻] JSON 解析失败，原始内容: {text[:200]}")
+            return []
 
-        def _do_fetch():
-            return self.anti_block_manager.request("GET", list_url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            })
+        articles = []
+        # data 是列表，每个元素是新闻 dict
+        if isinstance(data, list):
+            items = data[:self.limit if self.limit > 0 else None]
+        elif isinstance(data, dict) and "data" in data:
+            items = data["data"][:self.limit if self.limit > 0 else None]
+        else:
+            items = []
 
-        response = await loop.run_in_executor(None, _do_fetch)
-        html = response.text
-        return self._parse_list_html(html, channel)
-
-    def _parse_list_html(self, html: str, channel: str) -> list[dict]:
-        """解析列表页 HTML，提取文章链接"""
-        from bs4 import BeautifulSoup
-
-        soup = BeautifulSoup(html, "html.parser")
-        articles: list[dict] = []
-
-        # 网易新闻列表页结构：每个文章在 .news-item 或 .n-item 容器中
-        # 不同频道结构略有差异，尝试多种选择器
-
-        # 方法1: 查找所有 <h3> 或 <h2> 中的链接（网易常用结构）
-        for h_tag in soup.find_all(["h3", "h2"]):
-            link_tag = h_tag.find("a")
-            if not link_tag:
+        for item in items:
+            title = item.get("title", "")
+            article_url = item.get("docurl", item.get("url", ""))
+            if not title or not article_url:
+                continue
+            # 过滤视频
+            if "video" in article_url:
                 continue
 
-            title = link_tag.get_text(strip=True)
-            if not title or len(title) < 3:
-                continue
-
-            href = link_tag.get("href", "")
-            if not href or "163.com" not in href:
-                continue
-
-            # 提取发布时间
-            published_at = self._extract_publish_time(h_tag)
+            # 时间
+            published_at = None
+            time_str = item.get("time", "")
+            if time_str:
+                try:
+                    # 格式：05/28/2026 14:32:10
+                    published_at = datetime.strptime(time_str, "%m/%d/%Y %H:%M:%S")
+                except (ValueError, TypeError):
+                    pass
 
             articles.append({
                 "title": title,
-                "content": title,
-                "title": title,
-                "url": href,
+                "content": item.get("summary", title),  # 先用摘要，fetch_full_content 会替换
+                "url": article_url,
                 "source": self.SOURCE_NAME,
-                "channel": self.CHANNELS.get(channel, channel),
+                "channel": channel,
                 "published_at": published_at,
-                "metadata": {"fetch_method": "list_page"},
+                "metadata": {
+                    "imgurl": item.get("imgurl", ""),
+                    "docid": item.get("docid", ""),
+                },
             })
-
-        # 方法2: 查找 .news-item 容器
-        if not articles:
-            for item in soup.select(".news-item, .n-item, .article-item"):
-                link_tag = item.find("a", href=True)
-                if not link_tag:
-                    continue
-
-                title = link_tag.get_text(strip=True)
-                if not title or len(title) < 3:
-                    continue
-
-                href = link_tag["href"]
-                if "163.com" not in href:
-                    continue
-
-                published_at = self._extract_publish_time(item)
-
-                articles.append({
-                    "title": title,
-                    "content": title,
-                "title": title,
-                    "url": href,
-                    "source": self.SOURCE_NAME,
-                    "channel": self.CHANNELS.get(channel, channel),
-                    "published_at": published_at,
-                    "metadata": {"fetch_method": "news_item"},
-                })
-
-        # 方法3: 查找所有含 163.com 的文章链接（兜底）
-        if not articles:
-            for a_tag in soup.find_all("a", href=True):
-                href = a_tag["href"]
-                if "163.com" not in href or href.endswith(".html"):
-                    continue
-
-                title = a_tag.get_text(strip=True)
-                if not title or len(title) < 3 or len(title) > 200:
-                    continue
-
-                published_at = self._extract_publish_time(a_tag)
-
-                articles.append({
-                    "title": title,
-                    "content": title,
-                "title": title,
-                    "url": href,
-                    "source": self.SOURCE_NAME,
-                    "channel": self.CHANNELS.get(channel, channel),
-                    "published_at": published_at,
-                    "metadata": {"fetch_method": "fallback"},
-                })
 
         return articles
 
-    def _extract_publish_time(self, element) -> datetime | None:
-        """从元素中提取发布时间"""
-        import re
-
-        # 查找时间相关的标签或属性
-        time_patterns = [
-            r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})",  # 2024-01-15
-            r"(\d{1,2})月(\d{1,2})日",               # 1月15日
-        ]
-
-        text = element.get_text()
-
-        for pattern in time_patterns:
-            match = re.search(pattern, text)
-            if match:
-                try:
-                    if "月" in pattern:
-                        year = datetime.now().year
-                        month = int(match.group(1))
-                        day = int(match.group(2))
-                    else:
-                        year = int(match.group(1))
-                        month = int(match.group(2))
-                        day = int(match.group(3))
-
-                    if 1990 <= year <= 2030 and 1 <= month <= 12 and 1 <= day <= 31:
-                        return datetime(year, month, day)
-                except ValueError:
-                    pass
-
-        return None
-
-    async def fetch_article_detail(self, url: str) -> dict | None:
-        """
-        获取单篇文章详情（用于采集后补充完整内容）
-
-        网易新闻详情页结构相对固定，可以提取完整正文
-        """
+    async def _fetch_article_detail(self, url: str) -> dict | None:
+        """获取单篇文章详情（用 lxml 解析）"""
         client = await self._get_client()
         await self._rate_limit_wait()
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        }
-
         try:
-            response = await client.get(url, headers=headers)
+            response = await client.get(url, headers=HEADERS)
             response.raise_for_status()
             html = response.text
         except Exception as e:
@@ -289,67 +199,98 @@ class WangYiCollector(BaseCollector):
         return self._parse_detail_html(html, url)
 
     def _parse_detail_html(self, html: str, url: str) -> dict | None:
-        """解析详情页 HTML，提取完整文章"""
-        from bs4 import BeautifulSoup
-
-        soup = BeautifulSoup(html, "html.parser")
+        """解析详情页 HTML，提取完整文章（使用 BeautifulSoup，避免 lxml 编码问题）"""
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, "html.parser")
+        except Exception as e:
+            logger.warning(f"[网易新闻] BeautifulSoup 解析失败: {e}")
+            return None
 
         # 提取标题
-        title = ""
-        if soup.title:
-            title = soup.title.string or ""
-        og_title = soup.find("meta", property="og:title")
-        if og_title and og_title.get("content"):
-            title = og_title["content"]
-
+        title_tag = soup.find("title")
+        title = title_tag.get_text(strip=True) if title_tag else ""
         if not title:
             return None
 
-        # 提取正文 - 网易文章正文通常在 #artibody 或 .article 中
-        content = ""
-        for selector in ["#artibody", ".article", ".article-body", "#content"]:
-            element = soup.select_one(selector)
-            if element:
-                content = element.get_text(separator="\n", strip=True)
-                break
+        # 提取正文 — 网易文章正文在 #content 或 .post_text 内
+        content_parts = []
+        content_div = soup.select_one("#content") or soup.select_one(".post_text")
+        if content_div:
+            # 取所有 p 标签
+            for p in content_div.find_all("p"):
+                text = p.get_text(strip=True)
+                # 过滤太短的行和无效内容
+                if len(text) > 10 and "分享" not in text and "微信" not in text:
+                    content_parts.append(text)
+        else:
+            # fallback：直接找所有 p 标签，按长度过滤
+            for p in soup.find_all("p"):
+                text = p.get_text(strip=True)
+                if len(text) > 30:  # 正文段落一般较长
+                    content_parts.append(text)
 
-        # 兜底：取所有 <p> 标签
-        if not content:
-            paragraphs = soup.find_all("p")
-            content = "\n".join(p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 10)
-
-        # 提取作者
-        author = ""
-        author_tag = soup.find("meta", attrs={"name": "author"})
-        if author_tag and author_tag.get("content"):
-            author = author_tag["content"]
+        content = "\n".join(content_parts)
 
         # 提取发布时间
-        published_at = None
-        time_tag = soup.find("meta", property="article:published_time")
-        if time_tag and time_tag.get("content"):
-            try:
-                published_at = datetime.fromisoformat(time_tag["content"].replace("Z", "+00:00"))
-            except Exception:
-                pass
+        date_str = ""
+        try:
+            # 网易页面有时间 meta 标签
+            meta_time = soup.select_one("meta[property='article:published_time']")
+            if meta_time:
+                date_str = meta_time.get("content", "")
+            else:
+                # 从 HTML 中搜索日期格式
+                match = re.search(r"\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}", html)
+                if match:
+                    date_str = match.group()
+        except Exception:
+            pass
 
-        if not published_at:
-            # 尝试从页面文本提取
-            import re
-            text = soup.get_text()
-            match = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", text)
-            if match:
-                try:
-                    published_at = datetime(int(match.group(1)), int(match.group(2)), int(match.group(3)))
-                except ValueError:
-                    pass
+        # 提取图片列表
+        img_list = []
+        content_div = soup.select_one("#content") or soup.select_one(".post_text")
+        if content_div:
+            for img in content_div.find_all("img"):
+                src = img.get("src", "")
+                if src:
+                    img_list.append(src)
 
+        logger.info(f"[网易新闻] 正文解析完成: {title[:30]}... ({len(content)} 字符, {len(img_list)} 张图)")
         return {
             "title": title,
             "content": content,
             "url": url,
             "source": self.SOURCE_NAME,
-            "author": author,
-            "published_at": published_at,
-            "summary": content[:300] if content else title,
+            "date_str": date_str,
+            "img_list": img_list,
         }
+
+    async def _get_client(self):
+        """获取 httpx 客户端（复用，强信任环境变量，仅显式传参指定 proxy）"""
+        if not hasattr(self, "_client") or self._client is None:
+            proxy = self.proxy or self.config.get("proxy")
+            self._client = httpx.AsyncClient(
+                proxy=proxy,
+                timeout=self.timeout,
+                follow_redirects=True,
+                trust_env=False,
+            )
+        return self._client
+
+    async def _rate_limit_wait(self):
+        """限速等待"""
+        import time
+        now = time.time()
+        if hasattr(self, "_last_request_time"):
+            elapsed = now - self._last_request_time
+            if elapsed < self.RATE_LIMIT:
+                await asyncio.sleep(self.RATE_LIMIT - elapsed)
+        self._last_request_time = time.time()
+
+    async def close(self):
+        """关闭客户端"""
+        if hasattr(self, "_client") and self._client:
+            await self._client.aclose()
+            self._client = None
+

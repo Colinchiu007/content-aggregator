@@ -296,10 +296,10 @@
             }
         }
 
-        // 获取认证头
+        // 获取认证头（不强制 Content-Type，兼容 FormData 和 JSON）
         function getAuthHeaders() {
             const token = localStorage.getItem('auth_token');
-            const headers = { 'Content-Type': 'application/json' };
+            const headers = {};
             if (token) {
                 headers['Authorization'] = `Bearer ${token}`;
             }

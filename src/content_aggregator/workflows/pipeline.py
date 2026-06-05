@@ -765,6 +765,10 @@ class ContentPipeline:
             "wechat": self._parse_single_config,
             "sitemap": self._parse_single_config,
             "api": self._parse_single_config,
+            # 热点源（内置采集器，无需配置）
+            "wangyi": self._parse_single_config,
+            "weibo_hot": self._parse_single_config,
+            "douyin_hot": self._parse_single_config,
         }
 
         parse_fn = source_configs_map.get(source_type)

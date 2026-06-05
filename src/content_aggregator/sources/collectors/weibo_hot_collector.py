@@ -68,16 +68,20 @@ class WeiboHotCollector(BaseCollector):
         if self.limit > 0:
             hot_list = hot_list[: self.limit]
 
-        # 3. 可选：获取每条热搜的详情页链接
+        # 3. 可选：获取每条热搜的真实微博内容
         if self.include_detail:
-            logger.info("[微博热点] 正在获取热搜详情页链接...")
+            logger.info("[微博热点] 正在获取热搜相关微博内容...")
             for item in hot_list:
                 try:
-                    detail_url = await self._get_topic_detail_url(item["word"])
-                    item["detail_url"] = detail_url
+                    articles = await self.fetch_topic_articles(item["word"], limit=3)
+                    if articles:
+                        # 取前几篇微博拼接为正文
+                        contents = [a.get("content", "") for a in articles[:3]]
+                        item["content"] = "\n\n".join(contents)
+                        item["url"] = articles[0].get("url", item.get("url", ""))
                     await asyncio.sleep(1)  # 限流
                 except Exception as e:
-                    logger.warning(f"[微博热点] 获取 {item['word']} 详情页失败: {e}")
+                    logger.warning(f"[微博热点] 获取 {item['word']} 微博内容失败: {e}")
 
         logger.info(f"[微博热点] 采集完成，共 {len(hot_list)} 条")
         return hot_list

@@ -20,11 +20,20 @@ output/
 
 # Runtime cache
 data/dedup_cache.json
+data/articles_cache.json
+data/user.db
+*.bak
 
 # Temporary/debug scripts
 debug_*.py
 add_strategy_api.py
 custom_providers.py
+test_*.py
+check_*.py
+e2e_*.py
+poll_task.py
+fix_key.py
+status.py
 
 # Server stderr/stdout
 server_*.txt

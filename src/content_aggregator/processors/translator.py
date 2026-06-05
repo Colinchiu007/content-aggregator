@@ -135,7 +135,11 @@ Output only the translated text.
         self.config = config
         self.llm_config = config.get("llm", {})
         # 使用统一的 LLMClient
-        self.llm_client = LLMClient(self.llm_config)
+        llm_cfg = dict(self.llm_config)
+        http_proxy = (self.config.get("http", {}) or {}).get("proxy", "") or ""
+        if http_proxy:
+            llm_cfg["http_proxy"] = http_proxy
+        self.llm_client = LLMClient(llm_cfg)
 
     async def __aenter__(self):
         return self

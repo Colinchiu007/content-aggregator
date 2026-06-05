@@ -172,7 +172,16 @@
                 
                 if (resp.ok && data.access_token) {
                     localStorage.setItem('auth_token', data.access_token);
-                    localStorage.setItem('user_info', JSON.stringify(data.user));
+                    // 登录后立即获取用户信息
+                    try {
+                        const meResp = await fetch('/api/auth/me', {
+                            headers: { 'Authorization': `Bearer ${data.access_token}` }
+                        });
+                        if (meResp.ok) {
+                            const user = await meResp.json();
+                            localStorage.setItem('user_info', JSON.stringify(user));
+                        }
+                    } catch (e) { /* 忽略 */ }
                     window.location.href = '/';
                 } else {
                     errorEl.textContent = data.detail || '登录失败，请检查用户名和密码';

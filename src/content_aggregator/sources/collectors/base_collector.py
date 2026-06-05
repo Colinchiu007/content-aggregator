@@ -67,6 +67,7 @@ class BaseCollector(ABC):
             kwargs = dict(
                 timeout=self.timeout,
                 follow_redirects=True,
+                trust_env=False,  # 禁止自动读取 HTTP_PROXY/HTTPS_PROXY 环境变量
                 limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
             )
             if self.proxy:

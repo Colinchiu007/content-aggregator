@@ -123,6 +123,16 @@
 
 {% block extra_js %}
 <script>
+// 获取只含认证 Header 的选项（不覆盖 Content-Type，兼容 FormData）
+function authOptions(options = {}) {
+    const token = localStorage.getItem('auth_token');
+    if (!token) return options;
+    return {
+        ...options,
+        headers: { ...(options.headers || {}), 'Authorization': `Bearer ${token}` },
+    };
+}
+
 function showAddForm() {
     document.getElementById('add-form').style.display = 'block';
     document.getElementById('src-name').focus();
@@ -145,7 +155,8 @@ async function addSource() {
     fd.append('name', name);
     fd.append('url', url);
     fd.append('enabled', 'on');
-    const resp = await fetch('/api/sources/rss', { method: 'POST', body: fd });
+    const resp = await fetch('/api/sources/rss', authOptions({ method: 'POST', body: fd }));
+    if (resp.status === 401) { window.location.href = '/login'; return; }
     const data = await resp.json();
     if (data.success) {
         showToast('添加成功，刷新页面', 'success');
@@ -158,7 +169,7 @@ async function addSource() {
 }
 
 async function toggleSource(name) {
-    const resp = await fetch(`/api/sources/rss/${encodeURIComponent(name)}/toggle`, { method: 'POST' });
+    const resp = await fetch(`/api/sources/rss/${encodeURIComponent(name)}/toggle`, authOptions({ method: 'POST' }));
     const data = await resp.json();
     if (data.success) {
         showToast(data.enabled ? '已启用' : '已禁用', 'success');
@@ -170,7 +181,7 @@ async function toggleSource(name) {
 
 async function deleteSource(name) {
     if (!confirm(`确定删除「${name}」？`)) return;
-    const resp = await fetch(`/api/sources/rss/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    const resp = await fetch(`/api/sources/rss/${encodeURIComponent(name)}`, authOptions({ method: 'DELETE' }));
     const data = await resp.json();
     if (data.success) {
         showToast('已删除', 'success');
@@ -181,7 +192,7 @@ async function deleteSource(name) {
 }
 
 async function toggleHotSource(type) {
-    const resp = await fetch(`/api/sources/hot/${type}/toggle`, { method: 'POST' });
+    const resp = await fetch(`/api/sources/hot/${type}/toggle`, authOptions({ method: 'POST' }));
     const data = await resp.json();
     if (data.success) {
         showToast(data.enabled ? '已启用' : '已禁用', 'success');
@@ -193,11 +204,10 @@ async function toggleHotSource(type) {
 
 async function collectHotSource(type) {
     const fd = new FormData();
-    fd.append('rewrite', 'true');
-    fd.append('translate', '');
+    fd.append('rewrite', 'false');
     fd.append('formats', 'markdown');
-    fd.append('limit', '');
-    const resp = await fetch(`/api/collect/${type}`, { method: 'POST', body: fd });
+    const resp = await fetch(`/api/collect/${type}`, authOptions({ method: 'POST', body: fd }));
+    if (resp.status === 401) { window.location.href = '/login'; return; }
     const data = await resp.json();
     if (data.status === 'started') {
         showToast('采集任务已启动，请前往「采集任务」页面查看进度', 'success');

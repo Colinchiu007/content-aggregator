@@ -196,7 +196,12 @@ class RewriteProcessor:
         self.llm_config = config.get("llm", {})
         self.rewrite_config = config.get("rewrite", {})
         # 使用统一的 LLMClient
-        self.llm_client = LLMClient(self.llm_config)
+        # 获取代理配置（跨模块传递 http_proxy）
+        llm_cfg = dict(self.llm_config)
+        http_proxy = (self.config.get("http", {}) or {}).get("proxy", "") or ""
+        if http_proxy:
+            llm_cfg["http_proxy"] = http_proxy
+        self.llm_client = LLMClient(llm_cfg)
         # 从配置文件加载自定义提示词（覆盖默认值）
         self._custom_prompts: dict[str, str] = self.rewrite_config.get("prompts", {})
 

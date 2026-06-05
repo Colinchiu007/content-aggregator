@@ -55,6 +55,11 @@ def get_collector(source_type: str, config: dict | None = None, **kwargs):
     proxy = kwargs.pop("proxy", os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY"))
     timeout = kwargs.pop("timeout", 30)
 
+    # 国内网站采集器不传全局代理，直接连接；仅国际源需要代理
+    PROXY_REQUIRED_TYPES = {"youtube", "twitter", "tiktok"}
+    if proxy and source_type not in PROXY_REQUIRED_TYPES:
+        proxy = None
+
     mapping = {
         "rss": (CollectorsRSS, ["url"]),
         "youtube": (YouTubeCollector, ["channel_id", "playlist_id"]),

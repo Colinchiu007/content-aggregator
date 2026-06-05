@@ -211,7 +211,7 @@ async function loadModels(type) {
     const container = document.getElementById(type + '-models');
     container.innerHTML = '<p class="loading">加载中...</p>';
     try {
-        const resp = await fetch('/api/models/' + type);
+        const resp = await authFetch('/api/models/' + type);
         const data = await resp.json();
         modelData[type] = data.models || [];
         defaultIds[type] = data.default_model_id || '';
@@ -255,7 +255,7 @@ function renderModels(type) {
 // ========== 设置默认模型 ==========
 async function setDefault(type, id) {
     try {
-        const resp = await fetch('/api/models/' + type + '/' + encodeURIComponent(id) + '/default', { method: 'POST' });
+        const resp = await authFetch('/api/models/' + type + '/' + encodeURIComponent(id) + '/default', { method: 'POST' });
         if (!resp.ok) throw new Error((await resp.json()).detail || '操作失败');
         showMessage('✅ 默认模型已更新', 'success');
         await loadModels(type);
@@ -268,7 +268,7 @@ async function setDefault(type, id) {
 async function deleteModel(type, id) {
     if (!confirm('确定要删除这个模型吗？')) return;
     try {
-        const resp = await fetch('/api/models/' + type + '/' + encodeURIComponent(id), { method: 'DELETE' });
+        const resp = await authFetch('/api/models/' + type + '/' + encodeURIComponent(id), { method: 'DELETE' });
         if (!resp.ok) throw new Error((await resp.json()).detail || '操作失败');
         showMessage('✅ 已删除', 'success');
         await loadModels(type);
@@ -324,7 +324,7 @@ async function saveModel(event) {
         let url = '/api/models/' + type;
         let method = 'POST';
         if (editId) { url += '/' + encodeURIComponent(editId); method = 'PUT'; }
-        const resp = await fetch(url, {
+        const resp = await authFetch(url, {
             method: method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
@@ -343,7 +343,7 @@ async function saveModel(event) {
 async function saveCookie() {
     const cookie = document.getElementById('xhs-cookie').value.trim();
     try {
-        const resp = await fetch('/api/settings', {
+        const resp = await authFetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ sources: { xiaohongshu: { cookie: cookie } } }),
