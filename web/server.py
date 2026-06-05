@@ -1246,11 +1246,11 @@ async def api_list_articles(
     result = article_store.get_all(page=page, per_page=per_page, source=source)
     sources = article_store.get_sources()
     return JSONResponse({
-        "articles": result.get("articles", []),
+        "articles": result.get("items", []),
         "total": result.get("total", 0),
         "page": page,
         "per_page": per_page,
-        "total_pages": result.get("total_pages", 1),
+        "total_pages": result.get("pages", 1),
         "sources": sources,
     })
 
