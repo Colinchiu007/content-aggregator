@@ -45,9 +45,9 @@ class RewriteConfig:
     strategy: RewriteStrategy = RewriteStrategy.REWRITE
     style_id: str | None = None
     style_config: dict[str, Any] = field(default_factory=dict)
-    min_word_count: int = 500
-    max_word_count: int = 5000
-    target_word_count: int = 3000
+    min_word_count: int = 300
+    max_word_count: int = 3000
+    target_word_count: int = 1500
     # 自定义提示词（最高优先级，覆盖策略默认提示词和配置文件提示词）
     custom_prompt: str | None = None
     # 翻译目标语言。设为 "zh" 时先翻译成中文再改写
