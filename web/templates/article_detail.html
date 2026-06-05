@@ -7,7 +7,7 @@
 {% if article.metadata.get('rewritten') and (article.original_content or article.metadata.get('original_content')) %}
 <div class="page-header">
     <div>
-        <h1>{{ article.title or '无标题' }}</h1>
+        <h1 data-article-id="{{ article.id }}">{{ article.title or '无标题' }}</h1>
         <div style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
             <span class="badge badge-muted">{{ article.source or '未知来源' }}</span>
             <span class="badge" style="background:var(--warning);color:#fff">✨ 已改写</span>
@@ -76,7 +76,7 @@
 {% else %}
 <div class="page-header">
     <div>
-        <h1>{{ article.title or '无标题' }}</h1>
+        <h1 data-article-id="{{ article.id }}">{{ article.title or '无标题' }}</h1>
         <div style="margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
             <span class="badge badge-muted">{{ article.source or '未知来源' }}</span>
             {% if article.metadata.get('rewritten') %}
@@ -130,7 +130,6 @@
     </div>
 </div>
 {% endif %}
-{% endblock %}
 
 {# ===== 微信排版发布弹窗 ===== #}
 <style>
@@ -172,11 +171,13 @@
 </div>
 </div>
 </div>
+{% endblock %}
 
 {% block extra_js %}
 <script>
-    const ARTICLE_ID = {{ article.id | tojson }};
-    const ARTICLE_TITLE = {{ article.title | tojson }};
+    // 从 DOM 读取（避免 tojson 编码问题）
+    const ARTICLE_ID = document.querySelector('h1')?.dataset?.articleId || '';
+    const ARTICLE_TITLE = document.querySelector('h1')?.textContent?.trim() || '';
     const ARTICLE_CONTENT = document.getElementById('article-body') ? document.getElementById('article-body').innerText : '';
 
     async function rewriteArticle() {
@@ -196,7 +197,7 @@
                 await new Promise(r => setTimeout(r, 3000));
                 const taskResp = await fetch(`/api/tasks/${data.task_id}`);
                 const task = await taskResp.json();
-                if (task.status === 'completed') {
+                if (task.status === 'done') {
                     showToast('✅ 改写完成，内容已更新');
                     location.reload();
                     return;

@@ -64,12 +64,16 @@ from server_scheduler import BackgroundScheduler
 # ========================================================================
 
 def render_template(template_name: str, context: dict) -> HTMLResponse:
-    """渲染 Jinja2 模板"""
+    """渲染 Jinja2 模板，强制禁止浏览器缓存"""
     template_dir = Path(__file__).parent / "templates"
     env = Environment(loader=FileSystemLoader(str(template_dir)))
     template = env.get_template(template_name)
     html = template.render(**context)
-    return HTMLResponse(content=html)
+    from fastapi.responses import Response
+    return Response(content=html, media_type="text/html",
+                    headers={"Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                             "Pragma": "no-cache",
+                             "Expires": "0"})
 
 
 # ========================================================================
@@ -211,12 +215,9 @@ class ArticleStore:
             "pages": (total + per_page - 1) // per_page if per_page > 0 else 0,
         }
 
-    def get_by_id(self, article_id: str) -> dict | None:
-        """按 ID 获取"""
-        for a in self.articles:
-            if a.get("id") == article_id:
-                return a
-        return None
+    def get(self, article_id: str) -> dict | None:
+        """按 ID 获取单篇文章（wechat_router 调用接口）"""
+        return self.get_by_id(article_id)
 
     def delete(self, article_id: str) -> bool:
         """删除文章"""
@@ -323,6 +324,11 @@ from web.wechat_router import router as wechat_router
 app.include_router(wechat_router)
 logger.info("已启用微信发布路由（/api/wechat）")
 
+# 封面图管理路由（上传 + AI 生成）
+from web.cover_router import router as cover_router
+app.include_router(cover_router)
+logger.info("已启用封面图管理路由（/api/wechat/upload-cover, /api/wechat/generate-cover）")
+
 # Jinja2 全局函数
 def _formatTime(iso):
     if not iso:
@@ -347,6 +353,11 @@ def render_template(name: str, context: dict) -> HTMLResponse:
     """渲染 Jinja2 模板并返回 HTMLResponse（绕过 Starlette Jinja2Templates）"""
     template = jinja_env.get_template(name)
     html = template.render(**context)
+    from fastapi.responses import Response as FastAPIResponse
+    return FastAPIResponse(content=html, media_type="text/html",
+                           headers={"Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                                    "Pragma": "no-cache",
+                                    "Expires": "0"})
     return HTMLResponse(content=html)
 
 # 存储
