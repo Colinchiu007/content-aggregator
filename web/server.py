@@ -1234,6 +1234,27 @@ async def api_compose(
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
+@app.get("/api/articles")
+async def api_list_articles(
+    request: Request,
+    page: int = 1,
+    per_page: int = 50,
+    source: str | None = None,
+):
+    """获取文章列表（需要登录）"""
+    user = await require_auth(request)
+    result = article_store.get_all(page=page, per_page=per_page, source=source)
+    sources = article_store.get_sources()
+    return JSONResponse({
+        "articles": result.get("articles", []),
+        "total": result.get("total", 0),
+        "page": page,
+        "per_page": per_page,
+        "total_pages": result.get("total_pages", 1),
+        "sources": sources,
+    })
+
+
 @app.get("/api/articles/{article_id}")
 async def api_get_article(article_id: str, request: Request):
     """获取单篇文章（需要登录）"""
