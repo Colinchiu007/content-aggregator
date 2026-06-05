@@ -136,7 +136,7 @@
     // 动态加载策略下拉框（内置 + 自定义）
     async function loadStrategyOptions() {
         try {
-            const res = await fetch('/api/rewrite-strategies');
+            const res = await authFetch('/api/rewrite-strategies');
             const data = await res.json();
             if (!data.success) return;
 

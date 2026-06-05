@@ -119,7 +119,7 @@ let allStrategies = { builtin: [], custom: [], default_id: null };
 
 async function loadStrategies() {
     try {
-        const res = await fetch('/api/rewrite-strategies');
+        const res = await authFetch('/api/rewrite-strategies');
         const data = await res.json();
         if (data.success) {
             allStrategies = data;
@@ -218,14 +218,14 @@ async function saveStrategy() {
         let res;
         if (id) {
             // 更新
-            res = await fetch(`/api/rewrite-strategies/${id}`, {
+            res = await authFetch(`/api/rewrite-strategies/${id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, description, is_default })
             });
         } else {
             // 新建
-            res = await fetch('/api/rewrite-strategies', {
+            res = await authFetch('/api/rewrite-strategies', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, description, is_default })
@@ -246,7 +246,7 @@ async function saveStrategy() {
 async function deleteStrategy(id) {
     if (!confirm('确定要删除此策略吗？')) return;
     try {
-        const res = await fetch(`/api/rewrite-strategies/${id}`, { method: 'DELETE' });
+        const res = await authFetch(`/api/rewrite-strategies/${id}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.success) {
             loadStrategies();
@@ -260,7 +260,7 @@ async function deleteStrategy(id) {
 
 async function setDefault(id) {
     try {
-        const res = await fetch(`/api/rewrite-strategies/${id}`, {
+        const res = await authFetch(`/api/rewrite-strategies/${id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ is_default: true })
