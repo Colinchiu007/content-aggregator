@@ -21,33 +21,6 @@
 <form id="settings-form" onsubmit="return saveSettings(event)">
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
 
-    {# ===== 微信公众号 ===== #}
-    <div class="card" style="grid-column:span 2">
-        <div class="card-header">
-            <span class="card-title">📱 微信公众号</span>
-        </div>
-        <div style="padding:16px">
-            <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px;padding:12px;background:#fff3cd;border-radius:6px">
-                <strong>📌 配置说明：</strong>微信公众号需要通过第三方接口获取文章。
-                推荐使用 <strong>即刻图文</strong>（api.jike.text）或自建微信公众号爬虫接口。
-                配置接口地址和 Key 后，可按账号或关键词抓取文章。
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                <div class="form-group" style="margin:0">
-                    <label class="form-label">API 接口地址</label>
-                    <input class="form-input" name="wechat_api_url" placeholder="https://api.example.com/wechat" value="{{ config.sources.wechat.api_key or '' }}">
-                </div>
-                <div class="form-group" style="margin:0">
-                    <label class="form-label">API Key</label>
-                    <input class="form-input" name="wechat_api_key" type="password" placeholder="输入 API Key" value="{{ config.sources.wechat.api_key or '' }}">
-                </div>
-                <div class="form-group" style="margin:0;grid-column:span 2">
-                    <label class="form-label">公众号列表（每行一个，格式：名称|account_id）</label>
-                    <textarea class="form-textarea" name="wechat_accounts" style="min-height:80px" placeholder="示例：&#10;科技爱好者|coder_cc&#10;爱范儿|ifanr">{{ config.sources.wechat.accounts | join('\n') if config.sources.wechat.accounts else '' }}</textarea>
-                </div>
-            </div>
-        </div>
-    </div>
 
     {# ===== 知乎 ===== #}
     <div class="card">
@@ -297,10 +270,6 @@
         // 构建配置对象（密码字段为空时不发送）
         const cfg = {
             sources: {
-                wechat: {
-                    api_key: opt(fd.get('wechat_api_key')),
-                    accounts: lines(fd.get('wechat_accounts'))
-                },
                 zhihu: {
                     cookie: opt(fd.get('zhihu_cookie')),
                     urls: lines(fd.get('zhihu_urls'))
