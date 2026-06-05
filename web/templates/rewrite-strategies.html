@@ -120,15 +120,22 @@ let allStrategies = { builtin: [], custom: [], default_id: null };
 async function loadStrategies() {
     try {
         const res = await authFetch('/api/rewrite-strategies');
+        if (!res.ok) {
+            throw new Error('HTTP ' + res.status);
+        }
         const data = await res.json();
         if (data.success) {
             allStrategies = data;
             renderBuiltin();
             renderCustom();
+        } else {
+            throw new Error(data.error || '加载失败');
         }
     } catch (e) {
+        document.getElementById('builtin-strategies').innerHTML =
+            '<p style="color:#e74c3c;text-align:center;padding:24px">加载失败，请刷新页面</p>';
         document.getElementById('custom-strategies').innerHTML =
-            '<p style="color:#e74c3c;text-align:center;padding:24px">加载失败</p>';
+            '<p style="color:#e74c3c;text-align:center;padding:24px">加载失败，请刷新页面</p>';
     }
 }
 
@@ -279,6 +286,12 @@ async function setDefault(id) {
 // 弹窗外部点击不关闭（用户编辑信息时不误操作）
 
 // 页面加载时获取策略列表
-loadStrategies();
+// 等待 DOM 就绪，确保 auth 已完成
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadStrategies);
+} else {
+    // DOM 已就绪（如从其他页面导航回来）
+    loadStrategies();
+}
 </script>
 {% endblock %}
