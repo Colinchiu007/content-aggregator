@@ -1,7 +1,7 @@
 """
 微信发布路由 - 排版预览 + 发布到微信公众号
 
-依赖: wechat_publisher/（来自 wewrite toolkit）
+依赖: wechat_publisher/(来自 wewrite toolkit)
 """
 import os, json, logging, tempfile, traceback
 from pathlib import Path
@@ -36,7 +36,7 @@ def _save_config(cfg: dict):
 
 
 def _get_article_content(article_id: str) -> dict:
-    """从 article_store 获取文章内容，返回 dict 或 None"""
+    """从 article_store 获取文章内容,返回 dict 或 None"""
     from web.server import article_store
     art = article_store.get(article_id)
     if not art:
@@ -70,13 +70,37 @@ async def api_preview_article(
     request: Request,
     theme: str = Form(default="professional-clean"),
 ):
-    """预览文章排版效果，返回转换后的 HTML"""
+    """预览文章排版效果,返回转换后的 HTML"""
     art = _get_article_content(article_id)
     content = (art.get("content") or "")
     title = art.get("title") or ""
 
     if not content:
         raise HTTPException(400, "文章内容为空")
+
+    # 内容质量检测:识别被 LLM 推理链污染的数据
+    cn_ratio = sum(1 for c in content if '\u4e00' <= c <= '\u9fff') / max(len(content), 1)
+    reasoning_indicators = ['Evaluate the Input', 'Step 1:', '**Plan:**', 'reasoning', '思维链', '推理过程']
+    is_reasoning = any(ind in content for ind in reasoning_indicators) or (
+        len(content) > 200 and cn_ratio < 0.3 and content[0].isdigit()
+    )
+
+    if is_reasoning or len(content.strip()) < 50:
+        warning_html = (
+            '<div style="padding:24px;text-align:center;background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;margin:16px 0">'  
+            '<p style="font-size:15px;color:#92400e;margin:0 0 8px;font-weight:700">⚠️ 文章内容异常</p>'
+            '<p style="font-size:13px;color:#a16207;margin:0;line-height:1.6">'  
+            f'该文章的 content 字段可能存储了 LLM 推理链而非正常文章内容（中文占比 {cn_ratio:.0%}）。'
+            '<br>请重新采集并改写此文章，或选择其他正常文章预览。</p>'
+            '</div>'
+        )
+        return {
+            "html": warning_html,
+            "title": title,
+            "digest": "文章内容异常,需要重新改写",
+            "images": [],
+            "warning": "content_quality_issue",
+        }
 
     # 构建 Markdown 内容
     md = f"# {title}\n\n{content}" if title else content
@@ -108,6 +132,22 @@ async def api_preview_page(
 
     if not content:
         return HTMLResponse("<h2>文章内容为空</h2>")
+
+    # 内容质量检测(同 POST)
+    cn_ratio = sum(1 for c in content if '\u4e00' <= c <= '\u9fff') / max(len(content), 1)
+    reasoning_indicators = ['Evaluate the Input', 'Step 1:', '**Plan:**', 'reasoning']
+    is_reasoning = any(ind in content for ind in reasoning_indicators) or (
+        len(content) > 200 and cn_ratio < 0.3 and content[0].isdigit()
+    )
+
+    if is_reasoning or len(content.strip()) < 50:
+        return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>内容异常</title></head>
+<body style="padding:24px;text-align:center;background:#fef3c7">
+<h2 style="color:#92400e">⚠️ 文章内容异常</h2>
+<p>该文章 content 字段可能存储了 LLM 推理链而非正常文章内容(中文占比 {cn_ratio:.0%})。</p>
+<p>请重新采集并改写此文章。</p>
+</body></html>""")
 
     md = f"# {title}\n\n{content}" if title else content
 
@@ -219,7 +259,7 @@ async def api_publish_article(
 
 @router.get("/config")
 async def api_get_config():
-    """获取微信发布配置状态（不返回 secret）"""
+    """获取微信发布配置状态(不返回 secret)"""
     cfg = _load_config()
     return {
         "configured": bool(cfg.get("appid") and cfg.get("secret")),
@@ -262,7 +302,7 @@ async def api_test_connection(request: Request):
 
 @router.get("/gallery")
 async def api_theme_gallery(request: Request):
-    """主题画廊（HTML）"""
+    """主题画廊(HTML)"""
     names = list_themes()
     theme_infos = []
     for name in names:
@@ -324,7 +364,7 @@ async def api_theme_gallery(request: Request):
 </head>
 <body>
     <h1>🎨 排版主题</h1>
-    <p class="subtitle">共 {len(theme_infos)} 个主题，全部支持微信暗黑模式</p>
+    <p class="subtitle">共 {len(theme_infos)} 个主题,全部支持微信暗黑模式</p>
     <div class="theme-grid">{cards_html}</div>
     <script>
         // Load theme preview via /api/wechat/preview/sample?theme=xxx
