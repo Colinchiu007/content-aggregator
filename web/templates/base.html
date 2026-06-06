@@ -1,10 +1,27 @@
 <!DOCTYPE html>
+<!--
+  DESIGN SYSTEM ACTIVE: Cold Modern Theme
+  - No inline styles allowed (use style-pages.css)
+  - See DESIGN-SYSTEM.md for full guidelines
+  - CSS classes: .card, .filter-bar, .article-tags, etc.
+  - All new styles MUST go to style-pages.css
+-->
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Content Aggregator{% endblock %}</title>
+    
+    <!-- Google Fonts: JetBrains Mono + Playfair Display -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+    
     <link rel="stylesheet" href="/static/style.css">
+    <!-- 冷峻现代主题（增量覆盖） -->
+    <link rel="stylesheet" href="/static/style-cold-modern.css">
+    <!-- 页面特定优化 -->
+    <link rel="stylesheet" href="/static/style-pages.css">
     {% block extra_css %}{% endblock %}
 </head>
 <body>
@@ -17,7 +34,7 @@
                 <a href="/articles" {% if active_page == 'articles' %}class="active"{% endif %}>📝 文章列表</a>
                 <a href="/sources" {% if active_page == 'sources' %}class="active"{% endif %}>🔌 数据源</a>
                 <a href="/settings" {% if active_page == 'settings' %}class="active"{% endif %}>⚙️ 数据源配置</a>
-                <a href="/system-settings" {% if active_page == 'system_settings' %}class="active"{% endif %}>🤖 模型与采集设置</a>
+                <a href="/system-settings" {% if active_page == 'system_settings' %}class="active"{% endif %}>🤖 模型API设置</a>
                 <a href="/collect-link" {% if active_page == 'collect_link' %}class="active"{% endif %}>📎 链接采集</a>
                 <a href="/compose" {% if active_page == 'compose' %}class="active"{% endif %}>✏️ 手动输入</a>
                 <a href="/rewrite-strategies" {% if active_page == 'rewrite_strategies' %}class="active"{% endif %}>🪄 改写策略</a>
@@ -79,7 +96,9 @@
 
         async function apiPost(url, formData) {
             const resp = await fetch(url, { method: 'POST', body: formData });
-            return resp.json();
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || data.message || `请求失败 (${resp.status})`);
+            return data;
         }
 
         async function apiDelete(url) {
@@ -345,6 +364,10 @@
         // 覆盖原有的 apiPost 和 apiDelete 使用认证
         async function apiPost(url, formData) {
             const resp = await authFetch(url, { method: 'POST', body: formData });
+            if (!resp.ok) {
+                const data = await resp.json();
+                throw new Error(data.detail || data.message || `请求失败 (${resp.status})`);
+            }
             return resp.json();
         }
 
