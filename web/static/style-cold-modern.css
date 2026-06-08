@@ -1,0 +1,285 @@
+/* ============================================================
+   style-cold-modern.css — Cold Modern 冷峻现代主题
+   CSS 变量覆盖层，必须在 style.css 之后加载
+   ============================================================ */
+
+:root {
+    /* ---- 色彩体系（冷峻现代）---- */
+    --bg-primary:    #f8f9fa;    /* 主背景：极淡蓝灰 */
+    --bg-card:       #ffffff;     /* 卡片背景：纯白 */
+    --bg-hover:      #f1f3f5;    /* 悬停背景：微灰 */
+    --bg-sidebar:    #1a1d23;    /* 侧边栏：深炭黑 */
+
+    --text-primary:   #212529;    /* 主文字：深炭灰 */
+    --text-secondary: #495057;    /* 次要文字：中灰 */
+    --text-muted:    #868e96;    /*  muted 文字：浅灰 */
+    --text-on-dark:  #c1c7cd;    /* 深色背景上的文字 */
+    --text-white:     #ffffff;     /* 白色文字 */
+
+    --primary:        #4a90e2;    /* 强调色：冷蓝 */
+    --primary-hover:  #3a7bc8;    /* 冷蓝悬停 */
+    --primary-light:  #e8f0fe;    /* 冷蓝浅底 */
+    --primary-border: #aac4f7;    /* 冷蓝边框 */
+
+    --success:        #40c057;    /* 成功绿 */
+    --success-light:  #ebfbee;
+    --warning:        #fab005;    /* 警告黄 */
+    --warning-light:  #fff9db;
+    --danger:         #db3030;    /* 危险红：压暗，避免刺眼 */
+    --danger-light:  #fff0f0;
+    --info:           #4a90e2;    /* 信息蓝：与 primary 一致 */
+
+    --border-color:   #dee2e6;    /* 边框：蓝灰 */
+    --border-light:   #e9ecef;    /* 浅边框 */
+    --border-focus:   #4a90e2;    /* 焦点边框 */
+
+    --shadow-sm:      0 1px 3px rgba(0,0,0,0.06);
+    --shadow-md:      0 2px 8px rgba(0,0,0,0.08);
+    --shadow-lg:      0 4px 16px rgba(0,0,0,0.10);
+
+    --radius-sm:  4px;
+    --radius-md:  6px;
+    --radius-lg:  10px;
+    --radius-xl:  16px;
+
+    /* ---- 字体（与 DESIGN-SYSTEM.md 对齐）---- */
+    --font-sans:  'IBM Plex Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono:  'JetBrains Mono', 'Fira Code', monospace;
+    --font-display: 'Playfair Display', 'IBM Plex Sans', serif;
+
+    /* ---- 侧边栏专属变量 ---- */
+    --sidebar-width:   220px;
+    --sidebar-bg:      var(--bg-sidebar);
+    --sidebar-text:    var(--text-on-dark);
+    --sidebar-active:  var(--primary);
+    --sidebar-hover:   rgba(255,255,255,0.06);
+}
+
+/* ---- 全局基础覆盖 ---- */
+body {
+    font-family: var(--font-sans);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+/* ---- 侧边栏：冷峻深色 ---- */
+.sidebar {
+    background: var(--sidebar-bg);
+    color: var(--sidebar-text);
+    width: var(--sidebar-width);
+    border-right: 1px solid rgba(255,255,255,0.06);
+}
+
+.sidebar-logo {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: -0.3px;
+    color: #ffffff;
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.sidebar-nav a {
+    color: var(--sidebar-text);
+    border-radius: var(--radius-md);
+    margin: 2px 10px;
+    padding: 9px 14px;
+    font-size: 13.5px;
+    font-weight: 400;
+    transition: background 0.15s, color 0.15s;
+}
+
+.sidebar-nav a:hover {
+    background: var(--sidebar-hover);
+    color: #ffffff;
+}
+
+.sidebar-nav a.active {
+    background: var(--sidebar-active);
+    color: #ffffff;
+    font-weight: 500;
+}
+
+/* ---- 卡片：冷峻白 ---- */
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.2s, transform 0.15s;
+}
+
+.card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.card-header {
+    border-bottom: 1px solid var(--border-light);
+    padding: 14px 20px;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+/* ---- 按钮：冷蓝主题 ---- */
+.btn-primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+    border-radius: var(--radius-md);
+    font-weight: 500;
+    transition: background 0.15s, box-shadow 0.15s;
+}
+
+.btn-primary:hover {
+    background: var(--primary-hover);
+    border-color: var(--primary-hover);
+    box-shadow: 0 2px 8px rgba(74,144,226,0.25);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: var(--radius-md);
+    font-weight: 500;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.btn-outline:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+/* ---- 表单 ---- */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+input[type="number"],
+select,
+textarea {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 8px 12px;
+    font-size: 13.5px;
+    font-family: var(--font-sans);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 3px rgba(74,144,226,0.12);
+}
+
+/* ---- 表格 ---- */
+.data-table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.data-table th {
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 10px 14px;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.data-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 13.5px;
+    color: var(--text-primary);
+}
+
+.data-table tr:hover td {
+    background: var(--bg-hover);
+}
+
+/* ---- Badge ---- */
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+.badge-success { background: var(--success-light); color: var(--success); }
+.badge-warning { background: var(--warning-light); color: #8a6d00; }
+.badge-danger  { background: var(--danger-light);  color: var(--danger);  }
+.badge-info    { background: var(--primary-light);  color: var(--primary);  }
+.badge-muted   { background: var(--bg-primary);   color: var(--text-muted); }
+
+/* ---- Toast 通知 ---- */
+.toast {
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    font-size: 13.5px;
+    font-weight: 500;
+    padding: 12px 20px;
+    animation: toastIn 0.25s ease-out;
+}
+
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- 弹窗：冷峻风格覆盖 ---- */
+.modal-overlay {
+    background: rgba(26,29,35,0.45);   /* 用侧边栏同色系，更冷 */
+}
+
+.modal-content {
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+    border-bottom-color: var(--border-light);
+}
+
+.modal-footer {
+    border-top-color: var(--border-light);
+}
+
+/* ---- 代码/等宽字体 ---- */
+code, pre, .mono {
+    font-family: var(--font-mono);
+}
+
+/* ---- 响应式：窄屏时侧边栏收起 ---- */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 56px;
+        overflow: hidden;
+    }
+    .sidebar-logo {
+        font-size: 0;
+        padding: 14px 0;
+        text-align: center;
+    }
+    .sidebar-logo::first-letter {
+        font-size: 20px;
+    }
+    .sidebar-nav a {
+        font-size: 0;
+        padding: 10px 0;
+        text-align: center;
+    }
+    .sidebar-nav a::before {
+        font-size: 16px;
+    }
+    .main {
+        margin-left: 56px;
+    }
+}
