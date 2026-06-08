@@ -8,12 +8,12 @@
     --bg-primary:    #f8f9fa;    /* 主背景：极淡蓝灰 */
     --bg-card:       #ffffff;     /* 卡片背景：纯白 */
     --bg-hover:      #f1f3f5;    /* 悬停背景：微灰 */
-    --bg-sidebar:    #1a1d23;    /* 侧边栏：深炭黑 */
+    --bg-sidebar:    #ffffff;     /* 侧边栏：纯白 */
 
     --text-primary:   #212529;    /* 主文字：深炭灰 */
     --text-secondary: #495057;    /* 次要文字：中灰 */
     --text-muted:    #868e96;    /*  muted 文字：浅灰 */
-    --text-on-dark:  #c1c7cd;    /* 深色背景上的文字 */
+    --text-on-dark:  #495057;    /* 侧边栏文字（浅色背景）*/
     --text-white:     #ffffff;     /* 白色文字 */
 
     --primary:        #4a90e2;    /* 强调色：冷蓝 */
@@ -52,7 +52,8 @@
     --sidebar-bg:      var(--bg-sidebar);
     --sidebar-text:    var(--text-on-dark);
     --sidebar-active:  var(--primary);
-    --sidebar-hover:   rgba(255,255,255,0.06);
+    --sidebar-hover:   rgba(74,144,226,0.08);  /* 冷蓝浅底 */
+    --sidebar-border:  #e9ecef;
 }
 
 /* ---- 全局基础覆盖 ---- */
@@ -62,12 +63,13 @@ body {
     color: var(--text-primary);
 }
 
-/* ---- 侧边栏：冷峻深色 ---- */
+/* ---- 侧边栏：浅色冷峻 ---- */
 .sidebar {
     background: var(--sidebar-bg);
     color: var(--sidebar-text);
     width: var(--sidebar-width);
-    border-right: 1px solid rgba(255,255,255,0.06);
+    border-right: 1px solid var(--sidebar-border);
+    box-shadow: 2px 0 8px rgba(0,0,0,0.04);
 }
 
 .sidebar-logo {
@@ -75,9 +77,9 @@ body {
     font-weight: 700;
     font-size: 17px;
     letter-spacing: -0.3px;
-    color: #ffffff;
+    color: var(--primary);
     padding: 20px 20px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    border-bottom: 1px solid var(--sidebar-border);
 }
 
 .sidebar-nav a {
@@ -92,13 +94,19 @@ body {
 
 .sidebar-nav a:hover {
     background: var(--sidebar-hover);
-    color: #ffffff;
+    color: var(--primary);
 }
 
 .sidebar-nav a.active {
-    background: var(--sidebar-active);
-    color: #ffffff;
-    font-weight: 500;
+    background: var(--primary-light);
+    color: var(--primary);
+    font-weight: 600;
+}
+
+/* 侧边栏底部的用户区（浅色版） */
+.sidebar-user,
+.sidebar-login {
+    border-top-color: var(--sidebar-border) !important;
 }
 
 /* ---- 卡片：冷峻白 ---- */
