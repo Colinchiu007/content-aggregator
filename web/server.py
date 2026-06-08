@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, Form, Query, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
 
@@ -42,9 +42,17 @@ try:
     from shared.auth.auth_routes import router as auth_router
     from shared.auth.jwt_handler import get_user_from_token
     AUTH_ENABLED = True
+    logger.info("已加载共享认证模块")
 except ImportError:
-    AUTH_ENABLED = False
-    logger.warning("共享认证模块未找到，使用无认证模式")
+    # Fallback：加载本地认证模块
+    try:
+        from web.auth_router import router as auth_router
+        from web.auth_router import get_current_user as get_user_from_token
+        AUTH_ENABLED = True
+        logger.info("已加载本地认证模块（web/auth_router.py）")
+    except ImportError:
+        AUTH_ENABLED = False
+        logger.warning("认证模块未找到，使用无认证模式")
 
 # 先把 web 目录加到 sys.path（settings_crypto 在同一目录）
 sys.path.insert(0, str(Path(__file__).parent))
@@ -251,6 +259,7 @@ class TaskManager:
 
     def __init__(self):
         self.tasks: dict[str, dict] = {}
+        self._async_tasks: dict[str, asyncio.Task] = {}  # 存储 asyncio.Task 引用
 
     def create(self, task_type: str, description: str = "") -> str:
         """创建任务，返回 task_id"""
@@ -259,7 +268,7 @@ class TaskManager:
             "id": task_id,
             "type": task_type,
             "description": description,
-            "status": "pending",  # pending / running / done / error
+            "status": "pending",  # pending / running / done / error / cancelled
             "progress": 0,
             "message": "",
             "result": None,
@@ -268,6 +277,28 @@ class TaskManager:
             "finished_at": None,
         }
         return task_id
+
+    def register_async_task(self, task_id: str, async_task: asyncio.Task):
+        """注册 asyncio.Task 对象（用于取消）"""
+        self._async_tasks[task_id] = async_task
+
+    def cancel(self, task_id: str) -> bool:
+        """取消任务（仅 pending/running 可取消）"""
+        task = self.tasks.get(task_id)
+        if not task:
+            return False
+        if task["status"] not in ("pending", "running"):
+            return False  # 已完成/失败/已取消，不能取消
+        
+        # 1. 取消 asyncio.Task
+        async_task = self._async_tasks.get(task_id)
+        if async_task and not async_task.done():
+            async_task.cancel()
+            del self._async_tasks[task_id]
+        
+        # 2. 更新任务状态
+        self.update(task_id, status="cancelled", message="任务已取消")
+        return True
 
     def update(self, task_id: str, status: str | None = None, progress: int | None = None,
                message: str | None = None, result: Any = None):
@@ -285,7 +316,7 @@ class TaskManager:
             task["result"] = result
         if status == "running" and not task["started_at"]:
             task["started_at"] = datetime.now().isoformat()
-        if status in ("done", "error"):
+        if status in ("done", "error", "cancelled"):
             task["finished_at"] = datetime.now().isoformat()
 
     def get(self, task_id: str) -> dict | None:
@@ -305,8 +336,40 @@ CONFIG = load_config()
 
 app = FastAPI(title="Content Aggregator", version="1.0.0")
 
+# 请求日志中间件（调试用：记录所有请求路径）
+@app.middleware("http")
+async def log_requests(request, call_next):
+    import time
+    start_time = time.time()
+    
+    # 记录请求信息
+    client_host = request.client.host if request.client else "unknown"
+    print(f"[REQUEST] {request.method} {request.url.path} from {client_host}")
+    
+    # 执行请求
+    response = await call_next(request)
+    
+    # 记录响应信息
+    process_time = time.time() - start_time
+    print(f"[RESPONSE] {request.method} {request.url.path} -> {response.status_code} ({process_time:.3f}s)")
+    
+    return response
+
 # 静态文件服务
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+# 封面图服务 - 从 data/covers/ 目录提供图片
+COVERS_DIR = Path(__file__).parent.parent / "data" / "covers"
+@app.get("/covers/{filename}")
+async def serve_cover(filename: str):
+    """提供封面图文件"""
+    file_path = COVERS_DIR / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Not Found")
+    ext = file_path.suffix.lower()
+    media_type = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif"}.get(ext, "application/octet-stream")
+    return Response(content=file_path.read_bytes(), media_type=media_type)
 
 # 模板（绕过 Starlette Jinja2Templates，直接使用 Jinja2，修复 unhashable type: 'dict' 错误）
 jinja_env = Environment(
@@ -318,6 +381,154 @@ jinja_env = Environment(
 if AUTH_ENABLED:
     app.include_router(auth_router)
     logger.info("已启用共享认证模块（/api/auth 路由）")
+
+
+# 重置密码页面（GET /auth/reset-password）
+@app.get("/auth/reset-password", response_class=HTMLResponse)
+async def reset_password_page(request: Request):
+    """重置密码页面（GET 请求，显示 HTML 表单）"""
+    token = request.query_params.get("token")
+    print(f"[RESET-PAGE] Received request with token: {token[:30] if token else 'None'}...")
+    
+    if not token:
+        html = "<html><body style='font-family: sans-serif; padding: 40px; text-align: center;'><h1>无效的重置链接</h1><p>缺少 token 参数。</p><p><a href='/auth/forgot'>重新申请密码重置</a></p></body></html>"
+        return HTMLResponse(content=html, status_code=400)
+    
+    # 验证 token
+    from web.auth_router import decode_token
+    payload = decode_token(token)
+    if not payload:
+        html = "<html><body style='font-family: sans-serif; padding: 40px; text-align: center;'><h1>重置链接已过期</h1><p>请重新申请密码重置。</p><p><a href='/auth/forgot'>重新申请</a></p></body></html>"
+        return HTMLResponse(content=html, status_code=400)
+    
+    print(f"[RESET-PAGE] Token valid: user_id={payload.get('sub')}, username={payload.get('username')}")
+    
+    # Token 有效，显示重置密码表单
+    html = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <title>重置密码 - Content Aggregator</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
+        .auth-container {{ width: 100%; max-width: 400px; padding: 20px; }}
+        .auth-card {{ background: white; border-radius: 12px; padding: 40px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); }}
+        h1 {{ font-size: 24px; color: #1a1a1a; margin-bottom: 8px; }}
+        .subtitle {{ color: #666; font-size: 14px; margin-bottom: 32px; }}
+        .form-group {{ margin-bottom: 20px; }}
+        label {{ display: block; font-size: 14px; font-weight: 500; color: #333; margin-bottom: 8px; }}
+        input {{ width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 14px; transition: border-color 0.2s; }}
+        input:focus {{ outline: none; border-color: #667eea; }}
+        button {{ width: 100%; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.2s; }}
+        button:hover {{ transform: translateY(-2px); }}
+        button:disabled {{ opacity: 0.6; cursor: not-allowed; transform: none; }}
+        .error-message {{ background: #fee; color: #c33; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; display: none; }}
+        .error-message.show {{ display: block; }}
+        .success-message {{ background: #d4edda; color: #155724; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; display: none; }}
+        .success-message.show {{ display: block; }}
+        .links {{ margin-top: 24px; text-align: center; font-size: 14px; }}
+        .links a {{ color: #667eea; text-decoration: none; font-weight: 500; }}
+        .links a:hover {{ text-decoration: underline; }}
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <h1>🔑 重置密码</h1>
+            <p class="subtitle">请输入新密码</p>
+            
+            <div class="error-message" id="errorEl"></div>
+            <div class="success-message" id="successEl"></div>
+            
+            <form id="form">
+                <div class="form-group">
+                    <label for="password">新密码</label>
+                    <input type="password" id="password" placeholder="请输入新密码（至少6位）" required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassword">确认新密码</label>
+                    <input type="password" id="confirmPassword" placeholder="请再次输入新密码" required minlength="6">
+                </div>
+                <button type="submit" id="btn">重置密码</button>
+            </form>
+            
+            <div class="links" id="links" style="display: none;">
+                <a href="/auth/login">返回登录</a>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const form = document.getElementById('form');
+        const btn = document.getElementById('btn');
+        const errorEl = document.getElementById('errorEl');
+        const successEl = document.getElementById('successEl');
+        const links = document.getElementById('links');
+        
+        form.addEventListener('submit', async (e) => {{
+            e.preventDefault();
+            
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            
+            if (password.length < 6) {{
+                errorEl.textContent = '密码长度至少6位';
+                errorEl.classList.add('show');
+                return;
+            }}
+            
+            if (password !== confirmPassword) {{
+                errorEl.textContent = '两次输入的密码不一致';
+                errorEl.classList.add('show');
+                return;
+            }}
+            
+            btn.disabled = true;
+            btn.textContent = '重置中...';
+            errorEl.classList.remove('show');
+            
+            try {{
+                const resp = await fetch('/api/auth/reset-password', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{
+                        token: '{token}',
+                        new_password: password
+                    }})
+                }});
+                
+                const data = await resp.json();
+                
+                if (resp.ok && data.success) {{
+                    successEl.textContent = '密码重置成功！正在跳转到登录页面...';
+                    successEl.classList.add('show');
+                    form.style.display = 'none';
+                    links.style.display = '';
+                    
+                    setTimeout(() => {{
+                        window.location.href = '/auth/login';
+                    }}, 2000);
+                }} else {{
+                    errorEl.textContent = data.detail || '重置失败，请重试';
+                    errorEl.classList.add('show');
+                    btn.disabled = false;
+                    btn.textContent = '重置密码';
+                }}
+            }} catch (err) {{
+                errorEl.textContent = '网络错误，请稍后重试';
+                errorEl.classList.add('show');
+                btn.disabled = false;
+                btn.textContent = '重置密码';
+            }}
+        }});
+    </script>
+</body>
+</html>"""
+    
+    return HTMLResponse(content=html)
 
 # 微信发布路由
 from web.wechat_router import router as wechat_router
@@ -576,7 +787,7 @@ async def page_tasks(request: Request):
 
 @app.get("/system-settings", response_class=HTMLResponse)
 async def page_system_settings(request: Request):
-    """模型与采集设置（LLM、ASR、Cookie）"""
+    """模型API设置（LLM、ASR、图片生成、Cookie）"""
     config = _migrate_config_models(load_config())
     # 确保所有配置section都有默认值，避免Jinja2模板报错
     for key in ["llm", "asr", "sources"]:
@@ -754,7 +965,9 @@ async def api_collect_all(
                                 "status": "error", "message": error_msg})
             logger.error(error_msg, exc_info=True)
 
-    asyncio.create_task(run_task())
+    # 注册 asyncio.Task 到 TaskManager（支持取消）
+    async_task = asyncio.create_task(run_task())
+    task_manager.register_async_task(task_id, async_task)
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
@@ -817,7 +1030,9 @@ async def api_collect_youtube(
                                 "status": "error", "message": error_msg})
             logger.error(error_msg, exc_info=True)
 
-    asyncio.create_task(run_task())
+    # 注册 asyncio.Task 到 TaskManager（支持取消）
+    async_task = asyncio.create_task(run_task())
+    task_manager.register_async_task(task_id, async_task)
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
@@ -887,7 +1102,13 @@ async def api_collect_url(
             await broadcast_ws({"type": "task_update", "task_id": task_id,
                                 "status": "error", "message": error_msg})
 
-    asyncio.create_task(run_task())
+    # 注册 asyncio.Task 到 TaskManager（支持取消）
+
+
+    async_task = asyncio.create_task(run_task())
+
+
+    task_manager.register_async_task(task_id, async_task)
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
@@ -1033,7 +1254,13 @@ async def api_collect_link(
             await broadcast_ws({"type": "task_update", "task_id": task_id,
                                 "status": "error", "message": error_msg})
 
-    asyncio.create_task(run_task())
+    # 注册 asyncio.Task 到 TaskManager（支持取消）
+
+
+    async_task = asyncio.create_task(run_task())
+
+
+    task_manager.register_async_task(task_id, async_task)
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
@@ -1116,7 +1343,13 @@ async def api_rewrite(
         except Exception as e:
             task_manager.update(task_id, status="error", message=f"改写失败: {e}")
 
-    asyncio.create_task(run_task())
+    # 注册 asyncio.Task 到 TaskManager（支持取消）
+
+
+    async_task = asyncio.create_task(run_task())
+
+
+    task_manager.register_async_task(task_id, async_task)
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
@@ -1310,7 +1543,13 @@ async def api_compose(
         except Exception as e:
             task_manager.update(task_id, status="error", message=f"处理失败: {e}")
 
-    asyncio.create_task(run_task())
+    # 注册 asyncio.Task 到 TaskManager（支持取消）
+
+
+    async_task = asyncio.create_task(run_task())
+
+
+    task_manager.register_async_task(task_id, async_task)
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
@@ -1420,6 +1659,34 @@ async def api_list_tasks(request: Request):
     """获取任务列表（需要登录）"""
     user = await require_auth(request)
     return JSONResponse(task_manager.get_all())
+
+
+@app.delete("/api/tasks/{task_id}")
+async def api_cancel_task(task_id: str, request: Request):
+    """取消任务（需要登录）"""
+    user = await require_auth(request)
+    success = task_manager.cancel(task_id)
+    if not success:
+        task = task_manager.get(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        else:
+            raise HTTPException(status_code=400, detail=f"任务状态为 {task['status']}，无法取消")
+    return JSONResponse({"success": True, "message": "任务已取消"})
+
+
+@app.post("/api/tasks/{task_id}/cancel")
+async def api_cancel_task_post(task_id: str, request: Request):
+    """取消任务（POST 版本，兼容表单提交）"""
+    user = await require_auth(request)
+    success = task_manager.cancel(task_id)
+    if not success:
+        task = task_manager.get(task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        else:
+            raise HTTPException(status_code=400, detail=f"任务状态为 {task['status']}，无法取消")
+    return JSONResponse({"success": True, "message": "任务已取消"})
 
 
 @app.get("/api/sources")
@@ -1575,7 +1842,13 @@ async def api_collect_douyin_hot(
                                 "status": "error", "message": error_msg})
             logger.error(error_msg, exc_info=True)
 
-    asyncio.create_task(run_task())
+    # 注册 asyncio.Task 到 TaskManager（支持取消）
+
+
+    async_task = asyncio.create_task(run_task())
+
+
+    task_manager.register_async_task(task_id, async_task)
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
@@ -1630,7 +1903,13 @@ async def api_collect_wangyi(
                                 "status": "error", "message": error_msg})
             logger.error(error_msg, exc_info=True)
 
-    asyncio.create_task(run_task())
+    # 注册 asyncio.Task 到 TaskManager（支持取消）
+
+
+    async_task = asyncio.create_task(run_task())
+
+
+    task_manager.register_async_task(task_id, async_task)
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
@@ -1682,7 +1961,13 @@ async def api_collect_weibo_hot(
                                 "status": "error", "message": error_msg})
             logger.error(error_msg, exc_info=True)
 
-    asyncio.create_task(run_task())
+    # 注册 asyncio.Task 到 TaskManager（支持取消）
+
+
+    async_task = asyncio.create_task(run_task())
+
+
+    task_manager.register_async_task(task_id, async_task)
     return JSONResponse({"task_id": task_id, "status": "started"})
 
 
@@ -1718,17 +2003,24 @@ async def api_update_config(request: Request):
                 CONFIG["sources"] = {}
             for key, value in body["sources"].items():
                 if isinstance(value, dict) and isinstance(CONFIG["sources"].get(key), dict):
-                    # 深度合并：只更新非 null、非空列表的字段（避免空 [] 覆盖已有配置）
+                    # 深度合并：只跳过 null（保留前端未传递的字段）
+                    # 注意：空列表 [] 和空字符串 "" 需要保存（用户主动清空）
                     for fk, fv in value.items():
-                        if fv is not None and fv not in ([], ""):
+                        if fv is not None:  # ✅ 修复：允许空列表和空字符串
                             CONFIG["sources"][key][fk] = fv
                 elif value is not None:
                     CONFIG["sources"][key] = value
         if save_config(CONFIG):
             return JSONResponse({"success": True})
+        else:
+            # save_config 返回 False，记录详细错误
+            logger.error(f"[Config] save_config returned False for CONFIG keys: {list(CONFIG.keys())}")
+            return JSONResponse({"success": False, "error": "保存失败，请检查服务器日志"})
     except Exception as e:
+        import traceback
         logger.error(f"Config save error: {e}")
-    return JSONResponse({"success": False, "error": "保存失败"})
+        logger.error(traceback.format_exc())
+        return JSONResponse({"success": False, "error": f"保存失败: {str(e)[:200]}"})
 
 
 @app.get("/api/stats")
@@ -1751,6 +2043,143 @@ async def api_stats(request: Request):
 # ========================================================================
 # WebSocket
 # ========================================================================
+
+
+# ========================================================================
+# 调试端点（临时）
+# ========================================================================
+
+@app.get("/api/debug/article/{article_id}")
+async def api_debug_article(article_id: str, request: Request):
+    """调试用：查看文章内容（绕过 PowerShell 编码问题）"""
+    user = await require_auth(request)
+    
+    import sqlite3
+    from pathlib import Path
+    
+    # 尝试多个可能的数据库路径
+    possible_paths = [
+        Path(__file__).parent.parent / "data" / "content_aggregator.db",
+        Path(__file__).parent.parent / "data" / "content.db",
+        Path("data/content_aggregator.db"),
+        Path("data/content.db"),
+    ]
+    
+    db_path = None
+    for p in possible_paths:
+        if p.exists() and p.stat().st_size > 0:
+            db_path = p
+            break
+    
+    if not db_path:
+        return JSONResponse({"error": "数据库未找到或为空"}, status_code=404)
+    
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # 尝试多个可能的表名
+        table_names = ["articles", "Articles", "article"]
+        row = None
+        actual_table = None
+        
+        for table_name in table_names:
+            try:
+                cursor.execute(
+                    f"SELECT id, title, source, LENGTH(content) as content_len, substr(content, 1, 1000) as content_preview "
+                    f"FROM {table_name} WHERE id = ?",
+                    (article_id,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    actual_table = table_name
+                    break
+            except Exception:
+                continue
+        
+        if not row:
+            return JSONResponse({"error": "Article not found"}, status_code=404)
+        
+        result = {
+            "id": row["id"],
+            "title": row["title"],
+            "source": row["source"],
+            "content_length": row["content_len"],
+            "content_preview": row["content_preview"],
+            "is_likely_transcript": row["content_len"] > 1000,  # 字幕通常 > 1000 字符
+            "table_used": actual_table,
+            "db_path": str(db_path),
+        }
+        return JSONResponse(result)
+        
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        if "conn" in locals():
+            conn.close()
+
+
+@app.get("/api/debug/recent")
+async def api_debug_recent(request: Request, limit: int = 5):
+    """调试用：查看最近采集的文章（绕过 PowerShell 编码问题）"""
+    user = await require_auth(request)
+    
+    import sqlite3
+    from pathlib import Path
+    
+    possible_paths = [
+        Path(__file__).parent.parent / "data" / "content_aggregator.db",
+        Path(__file__).parent.parent / "data" / "content.db",
+    ]
+    
+    db_path = None
+    for p in possible_paths:
+        if p.exists() and p.stat().st_size > 0:
+            db_path = p
+            break
+    
+    if not db_path:
+        return JSONResponse({"error": "数据库未找到或为空"}, status_code=404)
+    
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        table_names = ["articles", "Articles", "article"]
+        articles = []
+        actual_table = None
+        
+        for table_name in table_names:
+            try:
+                cursor.execute(
+                    f"SELECT id, title, source, LENGTH(content) as content_len "
+                    f"FROM {table_name} ORDER BY ROWID DESC LIMIT ?",
+                    (limit,)
+                )
+                articles = [dict(row) for row in cursor.fetchall()]
+                if articles:
+                    actual_table = table_name
+                    break
+            except Exception:
+                continue
+        
+        if not articles:
+            return JSONResponse({"error": "No articles found"}, status_code=404)
+        
+        return JSONResponse({
+            "recent_articles": articles,
+            "table_used": actual_table,
+            "db_path": str(db_path),
+        })
+        
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        if "conn" in locals():
+            conn.close()
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
@@ -1968,6 +2397,34 @@ def _migrate_config_models(config: dict) -> dict:
         asr.pop("api_key", None)
     elif "models" not in asr:
         asr["models"] = []
+
+    # 图片生成模型：内置预设（即梦 + Vidu）
+    image = config.setdefault("image", {})
+    if "models" not in image or not image["models"]:
+        image["models"] = [
+            {
+                "id": "jimeng",
+                "name": "即梦图片生成4.0",
+                "base_url": "https://visual.volcengineapi.com",
+                "api_key": "",
+                "secret_key": "",
+                "model_id": "jimeng_t2i_v40",
+                "provider": "jimeng",
+                "is_default": True,
+            },
+            {
+                "id": "vidu",
+                "name": "Vidu图片生成",
+                "base_url": "https://api.vidu.cn",
+                "api_key": "",
+                "secret_key": "",
+                "model_id": "viduq2",
+                "provider": "vidu",
+                "is_default": False,
+            },
+        ]
+        image["default_model_id"] = "jimeng"
+
     return config
 
 
@@ -1975,11 +2432,21 @@ def _migrate_config_models(config: dict) -> dict:
 async def api_get_models(request: Request, model_type: str):
     """获取模型列表（需要登录）"""
     user = await require_auth(request)
-    if model_type not in ("llm", "asr"):
+    if model_type not in ("llm", "asr", "image"):
         raise HTTPException(status_code=400, detail="不支持的模型类型")
     config = _migrate_config_models(load_config())
     models = config.get(model_type, {}).get("models", [])
     default_id = config.get(model_type, {}).get("default_model_id", "")
+    # 为每个模型添加 key_preview（解密后的前4位明文）
+    from settings_crypto import decrypt_value
+    for m in models:
+        raw = m.get("api_key", "")
+        k = decrypt_value(raw)
+        m["key_preview"] = k[:4] if len(k) >= 4 else k
+        # Also for secret_key (Jimeng)
+        sraw = m.get("secret_key", "")
+        sk = decrypt_value(sraw)
+        m["secret_key_preview"] = sk[:4] if len(sk) >= 4 else sk
     return {"models": models, "default_model_id": default_id}
 
 
@@ -1987,8 +2454,11 @@ async def api_get_models(request: Request, model_type: str):
 async def api_add_model(model_type: str, request: Request):
     """添加模型（需要登录）"""
     user = await require_auth(request)
-    if model_type not in ("llm", "asr"):
+    if model_type not in ("llm", "asr", "image"):
         raise HTTPException(status_code=400, detail="不支持的模型类型")
+    # 图片模型是内置预设，不开放添加
+    if model_type == "image":
+        raise HTTPException(status_code=400, detail="图片生成模型为内置预设，不支持添加")
     data = await request.json()
     name = data.get("name", "").strip()
     base_url = data.get("base_url", "").strip()
@@ -2031,7 +2501,7 @@ async def api_add_model(model_type: str, request: Request):
 async def api_update_model(model_type: str, model_id: str, request: Request):
     """更新模型（需要登录）"""
     user = await require_auth(request)
-    if model_type not in ("llm", "asr"):
+    if model_type not in ("llm", "asr", "image"):
         raise HTTPException(status_code=400, detail="不支持的模型类型")
     data = await request.json()
     config = _migrate_config_models(load_config())
@@ -2041,18 +2511,21 @@ async def api_update_model(model_type: str, model_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"模型 '{model_id}' 不存在")
     if "name" in data:
         target["name"] = data["name"].strip()
-    if "base_url" in data:
-        url = data["base_url"].strip()
-        if url and not url.startswith(("http://", "https://")):
-            raise HTTPException(status_code=400, detail="API 端点必须以 http:// 或 https:// 开头")
-        target["base_url"] = url
+    if model_type != "image":
+        if "base_url" in data:
+            url = data["base_url"].strip()
+            if url and not url.startswith(("http://", "https://")):
+                raise HTTPException(status_code=400, detail="API 端点必须以 http:// 或 https:// 开头")
+            target["base_url"] = url
+        if "model_id" in data:
+            val = data["model_id"].strip()
+            if not val:
+                raise HTTPException(status_code=400, detail="模型 ID 不能为空")
+            target["model_id"] = val
     if "api_key" in data:
         target["api_key"] = data["api_key"].strip()
-    if "model_id" in data:
-        val = data["model_id"].strip()
-        if not val:
-            raise HTTPException(status_code=400, detail="模型 ID 不能为空")
-        target["model_id"] = val
+    if model_type == "image" and "secret_key" in data:
+        target["secret_key"] = data["secret_key"].strip()
     save_config(config)
     return {"status": "success", "model": target}
 
@@ -2061,10 +2534,12 @@ async def api_update_model(model_type: str, model_id: str, request: Request):
 async def api_delete_model(model_type: str, model_id: str, request: Request):
     """删除模型（需要登录）"""
     user = await require_auth(request)
-    if model_type not in ("llm", "asr"):
+    if model_type not in ("llm", "asr", "image"):
         raise HTTPException(status_code=400, detail="不支持的模型类型")
     config = _migrate_config_models(load_config())
     models = config.setdefault(model_type, {}).setdefault("models", [])
+    if model_type == "image":
+        raise HTTPException(status_code=400, detail="内置预设模型不可删除")
     if len(models) <= 1:
         raise HTTPException(status_code=400, detail="至少需要保留一个模型")
     idx = next((i for i, m in enumerate(models) if m["id"] == model_id), None)
@@ -2082,7 +2557,7 @@ async def api_delete_model(model_type: str, model_id: str, request: Request):
 async def api_set_default_model(model_type: str, model_id: str, request: Request):
     """设置默认模型（需要登录）"""
     user = await require_auth(request)
-    if model_type not in ("llm", "asr"):
+    if model_type not in ("llm", "asr", "image"):
         raise HTTPException(status_code=400, detail="不支持的模型类型")
     config = _migrate_config_models(load_config())
     models = config.setdefault(model_type, {}).setdefault("models", [])
@@ -2110,3 +2585,15 @@ async def page_login(request: Request):
 async def page_register(request: Request):
     """注册页面"""
     return render_template("register.html", {"request": request})
+
+
+@app.get("/auth/forgot", response_class=HTMLResponse)
+async def page_forgot_password(request: Request):
+    """忘记密码页面"""
+    return render_template("forgot_password.html", {"request": request})
+
+
+@app.get("/auth/reset", response_class=HTMLResponse)
+async def page_reset_password(request: Request, token: str = ""):
+    """重置密码页面（token 从 URL 参数获取）"""
+    return render_template("reset_password.html", {"request": request, "token": token})

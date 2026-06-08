@@ -7,7 +7,7 @@
     <h1>✏️ 手动输入</h1>
 </div>
 
-<div class="card" style="max-width:800px;margin-bottom:16px">
+<div class="card card-compose">
     <form id="compose-form" onsubmit="return handleCompose(event)">
         <div class="form-group">
             <label class="form-label">标题（可选）</label>
@@ -16,23 +16,23 @@
 
         <div class="form-group">
             <label class="form-label">内容</label>
-            <textarea class="form-textarea" name="content" id="compose-content" placeholder="粘贴或输入文章内容..." required style="min-height:200px"></textarea>
+            <textarea class="form-textarea" name="content" id="compose-content" placeholder="粘贴或输入文章内容..." required></textarea>
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr 2fr 1fr 1fr auto;gap:16px;align-items:end;margin-top:20px;padding:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)">
+        <div class="compose-form-grid">
             <!-- 处理方式 -->
-            <div style="display:flex;flex-direction:column;gap:8px">
-                <label class="form-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600">处理方式</label>
-                <select class="form-select" name="action" id="compose-action" onchange="toggleRewrite()" style="width:100%;padding:10px 12px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:14px;cursor:pointer;transition:all 0.2s ease">
+            <div class="compose-form-col">
+                <label class="form-label">处理方式</label>
+                <select class="form-select" name="action" id="compose-action" onchange="toggleRewrite()">
                     <option value="export">直接导出</option>
                     <option value="rewrite" selected>AI 改写后导出</option>
-                </select>
+            </select>
             </div>
 
             <!-- 改写策略 -->
-            <div style="display:flex;flex-direction:column;gap:8px">
-                <label class="form-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600">改写策略</label>
-                <select class="form-select" name="strategy" id="strategy-select" style="width:100%;padding:10px 12px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:14px;cursor:pointer;transition:all 0.2s ease">
+            <div class="compose-form-col">
+                <label class="form-label">改写策略</label>
+                <select class="form-select" name="strategy" id="strategy-select">
                     <option value="REWRITE" selected>深度改写</option>
                     <option value="PARAPHRASE">伪原创</option>
                     <option value="STYLE_TRANSFER">风格转换</option>
@@ -42,27 +42,27 @@
             </div>
 
             <!-- 目标行业 -->
-            <div style="display:flex;flex-direction:column;gap:8px">
-                <label class="form-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600">
+            <div class="compose-form-col">
+                <label class="form-label">
                     目标行业（可选）
-                    <span style="font-size:11px;text-transform:none;letter-spacing:0.3px;margin-left:8px;color:var(--primary);font-weight:normal">按行业语境改写</span>
+                    <span class="form-label-hint">按行业语境改写</span>
                 </label>
-                <input class="form-input" name="industry" placeholder="如：美妆、金融科技、医疗..." style="width:100%;padding:10px 14px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:14px;transition:all 0.2s ease">
+                <input class="form-input" name="industry" placeholder="如：美妆、金融科技、医疗...">
             </div>
 
             <!-- 翻译选项 -->
-            <div style="display:flex;flex-direction:column;gap:8px">
-                <label class="form-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600">翻译选项</label>
-                <div style="display:flex;align-items:center;gap:10px;padding:10px 0">
-                    <input type="checkbox" id="compose-translate" name="translate" value="yes" style="accent-color:var(--primary);width:20px;height:20px;cursor:pointer">
-                    <label for="compose-translate" style="margin:0;font-size:13px;color:var(--text-muted);cursor:pointer;white-space:nowrap">英文先翻译成中文</label>
+            <div class="compose-form-col">
+                <label class="form-label">翻译选项</label>
+                <div class="compose-checkbox-wrapper">
+                    <input type="checkbox" id="compose-translate" name="translate" value="yes">
+                    <label for="compose-translate">英文先翻译成中文</label>
                 </div>
             </div>
 
             <!-- 导出格式 -->
-            <div style="display:flex;flex-direction:column;gap:8px">
-                <label class="form-label" style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);font-weight:600">导出格式</label>
-                <select class="form-select" name="format_type" style="width:100%;padding:10px 12px;border-radius:6px;background:var(--bg);color:var(--text);border:1px solid var(--border);font-size:14px;cursor:pointer;transition:all 0.2s ease">
+            <div class="compose-form-col">
+                <label class="form-label">导出格式</label>
+                <select class="form-select" name="format_type">
                     <option value="markdown">Markdown</option>
                     <option value="html">HTML</option>
                     <option value="json">JSON</option>
@@ -72,9 +72,9 @@
             </div>
 
             <!-- 处理按钮 -->
-            <div style="display:flex;flex-direction:column;gap:8px;justify-content:flex-end">
-                <div style="height:21px"></div> <!-- label spacer -->
-                <button type="submit" class="btn btn-primary" style="width:100%;padding:10px 24px;font-weight:600;font-size:14px;letter-spacing:0.5px;border-radius:6px;transition:all 0.3s ease;box-shadow:0 4px 16px rgba(59,130,246,0.4);cursor:pointer">
+            <div class="compose-button-col">
+                <div class="form-label-spacer"></div> <!-- label spacer -->
+                <button type="submit" class="btn btn-primary">
                     🚀 处理
                 </button>
             </div>
@@ -83,7 +83,7 @@
 </div>
 
 <!-- 任务状态 -->
-<div id="compose-status" style="display:none">
+<div id="compose-status" class="compose-status">
     <div class="task-status" id="compose-task">
         <span class="spinner"></span>
         <span>处理中...</span>
@@ -91,33 +91,33 @@
 </div>
 
 <!-- 改写结果：左右对照 -->
-<div id="compose-result" style="display:none">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-        {# 左侧：原文 #}
-        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden">
-            <div style="background:#f5f5f5;padding:10px 16px;border-bottom:1px solid var(--border)">
-                <span style="font-weight:600;font-size:14px;color:var(--text-muted)">📄 原文</span>
+<div id="compose-result" class="compose-result">
+    <div class="compare-container">
+        <!-- 左侧：原文 -->
+        <div class="compare-panel original">
+            <div class="compare-panel-header">
+                <span>📄 原文</span>
             </div>
-            <div id="result-original" style="padding:16px;max-height:500px;overflow-y:auto;background:var(--bg)">
-                <pre id="original-text" style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:14px;color:var(--text-muted)"></pre>
+            <div id="result-original" class="compare-panel-body">
+                <pre id="original-text"></pre>
             </div>
         </div>
 
-        {# 右侧：改写后 #}
-        <div style="border:2px solid var(--warning);border-radius:8px;overflow:hidden">
-            <div style="background:var(--warning);padding:10px 16px;display:flex;align-items:center;gap:8px">
-                <span style="font-weight:600;font-size:14px;color:#fff">✨ 改写后</span>
-                <span id="result-strategy" style="font-size:12px;color:rgba(255,255,255,0.8)"></span>
+        <!-- 右侧：改写后 -->
+        <div class="compare-panel rewritten">
+            <div class="compare-panel-header">
+                <span>✨ 改写后</span>
+                <span id="result-strategy" class="strategy-badge"></span>
             </div>
-            <div id="result-rewritten" style="padding:16px;max-height:500px;overflow-y:auto">
-                <pre id="result-body" style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:14px"></pre>
+            <div id="result-rewritten" class="compare-panel-body">
+                <pre id="result-body"></pre>
             </div>
         </div>
     </div>
 
-    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+    <div class="compose-result-actions">
         <button class="btn btn-outline btn-sm" onclick="copyResult()">📋 复制改写内容</button>
-        <a id="result-link" href="#" class="btn btn-primary btn-sm" style="display:none;text-decoration:none">查看详情页 →</a>
+        <a id="result-link" href="#" class="btn btn-primary btn-sm">查看详情页 →</a>
     </div>
 </div>
 {% endblock %}

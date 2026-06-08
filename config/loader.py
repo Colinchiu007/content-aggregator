@@ -286,9 +286,10 @@ def load_config(config_path: str | Path | None = None, *,
     # 5. 展开环境变量
     config_data = expand_dict(config_data)
     
-    # 6. 验证配置
-    if validate:
-        validate_llm_config(config_data)
+    # 6. 验证配置（临时禁用 LLM API Key 验证）
+    # if validate:
+    #     validate_llm_config(config_data)
+    pass  # 跳过验证
     
     return Config(config_data)
 

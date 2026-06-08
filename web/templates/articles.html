@@ -12,7 +12,7 @@
 </div>
 
 <!-- 来源过滤 -->
-<div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap">
+<div class="filter-bar">
     <a href="/articles" class="btn btn-outline btn-sm {% if not current_source %}active{% endif %}" style="{% if not current_source %}border-color:var(--primary);color:var(--primary){% endif %}">全部</a>
     {% for src in sources %}
     <a href="/articles?source={{ src.name }}" class="btn btn-outline btn-sm {% if current_source == src.name %}active{% endif %}" style="{% if current_source == src.name %}border-color:var(--primary);color:var(--primary){% endif %}">
@@ -20,8 +20,6 @@
     </a>
     {% endfor %}
 </div>
-
-<!-- 文章表格 -->
 <div class="card">
     {% if articles['items'] %}
     <div class="table-wrapper">
@@ -104,7 +102,7 @@
         if (!confirm('确定清空所有文章？此操作不可恢复。')) return;
         
         // 1. 清空文章
-        const resp = await fetch('/api/articles/clear', { method: 'POST' });
+        const resp = await authFetch('/api/articles/clear', { method: 'POST' });
         const data = await resp.json();
         
         if (data.success) {
@@ -112,7 +110,7 @@
             
             // 2. 自动清除去重缓存（防止下次采集时全部被去重拦截）
             try {
-                const cacheResp = await fetch('/api/cache/clear', { method: 'POST' });
+                const cacheResp = await authFetch('/api/cache/clear', { method: 'POST' });
                 const cacheData = await cacheResp.json();
                 if (cacheData.success) {
                     showToast('✅ 文章已清空，去重缓存已清除', 'success');

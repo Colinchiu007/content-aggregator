@@ -1,13 +1,13 @@
 """
 YouTube 采集器
 
-支持：
-- 频道最新视频列表（通过 YouTube Data API v3）
+支持:
+- 频道最新视频列表(通过 YouTube Data API v3)
 - 播放列表视频列表
-- 视频字幕提取（优先自动字幕 → 手动字幕 → AI 识别）
+- 视频字幕提取(优先自动字幕 → 手动字幕 → AI 识别)
 
-注意：需要 YouTube Data API Key（免费额度：每天 10000 单位）
-无代理/无 API Key 时跳过采集并给出提示，不中断流程。
+注意:需要 YouTube Data API Key(免费额度:每天 10000 单位)
+无代理/无 API Key 时跳过采集并给出提示,不中断流程。
 """
 
 import logging
@@ -17,7 +17,7 @@ from content_aggregator.sources.collectors.base_collector import BaseCollector, 
 
 logger = logging.getLogger(__name__)
 
-# 延迟导入，避免顶层报错（未安装库时不破坏初始化）
+# 延迟导入,避免顶层报错(未安装库时不破坏初始化)
 _transcript_api = None
 
 
@@ -29,9 +29,9 @@ def _get_transcript_api():
             from youtube_transcript_api import YouTubeTranscriptApi
             _transcript_api = YouTubeTranscriptApi
         except ImportError:
-            # 使用 logging 直接调用，避免依赖模块级 logger 变量
+            # 使用 logging 直接调用,避免依赖模块级 logger 变量
             _logger = logging.getLogger(__name__)
-            _logger.warning("[YouTube] 未安装 youtube-transcript-api，字幕提取不可用")
+            _logger.warning("[YouTube] 未安装 youtube-transcript-api,字幕提取不可用")
             _transcript_api = False
     return _transcript_api
 
@@ -45,12 +45,12 @@ class YouTubeCollector(BaseCollector):
     def __init__(self, api_key: str | None = None, fetch_transcript: bool = True,
                  llm_config: dict | None = None, **kwargs):
         """
-        参数：
+        参数:
             api_key: YouTube Data API Key
-            fetch_transcript: 是否提取字幕（默认 True）
-            llm_config: LLM 配置（用于无字幕时 AI 识别）
+            fetch_transcript: 是否提取字幕(默认 True)
+            llm_config: LLM 配置(用于无字幕时 AI 识别)
                 - api_key: API 密钥
-                - model: 模型名（如 deepseek-v4-pro）
+                - model: 模型名(如 deepseek-v4-pro)
                 - base_url: API 地址
         """
         super().__init__(**kwargs)
@@ -83,15 +83,15 @@ class YouTubeCollector(BaseCollector):
         """
         采集 YouTube 视频
 
-        参数：
-            channel_id: YouTube 频道 ID（如 UC...）
-            playlist_id: 播放列表 ID（如 LL... 用于获取频道最新视频）
+        参数:
+            channel_id: YouTube 频道 ID(如 UC...)
+            playlist_id: 播放列表 ID(如 LL... 用于获取频道最新视频)
             max_results: 最大条数
-            search_query: 搜索关键词（如 "AI agent"）
-            order: 排序方式 - date（更新时间）、viewCount（播放量）、relevance（相关度）
+            search_query: 搜索关键词(如 "AI agent")
+            order: 排序方式 - date(更新时间)、viewCount(播放量)、relevance(相关度)
         """
         if not self.api_key:
-            raise EnvironmentError("YOUTUBE_API_KEY 未配置，请在 config.yaml 中设置 sources.youtube.api_key")
+            raise EnvironmentError("YOUTUBE_API_KEY 未配置,请在 config.yaml 中设置 sources.youtube.api_key")
 
         channel_id = channel_id or self.config.get("channel_id")
         playlist_id = playlist_id or self.config.get("playlist_id")
@@ -156,12 +156,12 @@ class YouTubeCollector(BaseCollector):
                 except Exception:
                     pass
 
-            # 默认内容：标题 + 描述
+            # 默认内容:标题 + 描述
             title = snippet.get("title", "") or ""
             description = snippet.get("description", "") or ""
             content_text = description
 
-            # 提取字幕（如需要）
+            # 提取字幕(如需要)
             if self.fetch_transcript and video_id:
                 transcript = await self._get_transcript(video_id)
                 if transcript:
@@ -191,52 +191,95 @@ class YouTubeCollector(BaseCollector):
     async def _get_transcript(self, video_id: str) -> str | None:
         """
         获取视频字幕文本
-
+        
         优先级：
         1. 手动字幕（已翻译）
         2. 自动字幕
         3. 描述（fallback，已在调用处处理）
         """
-        api = _get_transcript_api()
-        if not api:
+        api_class = _get_transcript_api()
+        if not api_class:
             return None
-
+        
         try:
-            # 优先获取中文/英文自动字幕，按语言优先级列表尝试
-            transcript_list = api.list_transcripts(video_id)
-
-            # 语言优先级：中文 -> 英文 -> 其他
+            # 正确用法：youtube-transcript-api 的 API 是 fetch() 和 list()（实例方法）
+            # 方法1：直接 fetch（推荐，自动尝试多种语言）
             preferred_langs = ["zh", "en", "zh-Hans", "zh-Hant", "en-US", "en-GB"]
-
-            for lang in preferred_langs:
-                try:
-                    # 尝试查找该语言的手动字幕
-                    transcript = transcript_list.find_transcript([lang])
-                    text = " ".join([seg["text"] for seg in transcript.fetch()])
-                    if text.strip():
-                        return text.strip()
-                except Exception:
-                    continue
-
-            # 自动字幕（降级）
             try:
-                transcript = transcript_list.find_generated_transcript(preferred_langs)
-                text = " ".join([seg["text"] for seg in transcript.fetch()])
-                if text.strip():
-                    return text.strip()
+                transcript = api_class().fetch(video_id, languages=preferred_langs)
+                if transcript:
+                    # 兼容：seg 可能是对象（.text）或字典（['text']）
+                    try:
+                        text = " ".join([seg.text for seg in transcript])
+                    except AttributeError:
+                        text = " ".join([seg['text'] for seg in transcript])
+                    if text.strip():
+                        logger.info(f"[YouTube] 视频 {video_id} 字幕提取成功 ({len(text)} 字)")
+                        return text.strip()
             except Exception:
                 pass
-
+            
+            # 方法1补充：首选语言失败时，尝试获取任意可用字幕（不指定语言）
+            try:
+                transcript = api_class().fetch(video_id)  # 不指定语言，获取默认字幕
+                if transcript:
+                    try:
+                        text = " ".join([seg.text for seg in transcript])
+                    except AttributeError:
+                        text = " ".join([seg['text'] for seg in transcript])
+                    if text.strip():
+                        logger.info(f"[YouTube] 视频 {video_id} 字幕提取成功（任意语言）({len(text)} 字)")
+                        return text.strip()
+            except Exception:
+                pass
+            
+            # 方法2：list + fetch（更精细控制，备用）
+            try:
+                transcript_list = api_class().list(video_id)
+                
+                # 尝试手动字幕
+                for lang in preferred_langs:
+                    try:
+                        transcript_obj = transcript_list.find_transcript([lang])
+                        fetched = transcript_obj.fetch()
+                        # 兼容：seg 可能是对象或字典
+                        try:
+                            text = " ".join([seg.text for seg in fetched])
+                        except AttributeError:
+                            text = " ".join([seg['text'] for seg in fetched])
+                        if text.strip():
+                            logger.info(f"[YouTube] 视频 {video_id} 手动字幕提取成功 lang={lang} ({len(text)} 字)")
+                            return text.strip()
+                    except Exception:
+                        continue
+                
+                # 自动字幕
+                try:
+                    transcript_obj = transcript_list.find_generated_transcript(preferred_langs)
+                    fetched = transcript_obj.fetch()
+                    # 兼容：seg 可能是对象或字典
+                    try:
+                        text = " ".join([seg.text for seg in fetched])
+                    except AttributeError:
+                        text = " ".join([seg['text'] for seg in fetched])
+                    if text.strip():
+                        logger.info(f"[YouTube] 视频 {video_id} 自动字幕提取成功 ({len(text)} 字)")
+                        return text.strip()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+                
         except Exception as e:
             logger.debug(f"[YouTube] 视频 {video_id} 字幕提取失败: {e}")
-
+        
         return None
 
     async def _transcribe_with_llm(self, video_id: str) -> str | None:
         """
-        无字幕时调用 LLM 进行语音识别（需要视频下载 + ASR，暂未实现）
+        无字幕时调用 LLM 进行语音识别(需要视频下载 + ASR,暂未实现)
         未来可接入 Whisper 等本地模型。
         """
-        # 占位实现：需要视频下载 -> 音频 -> Whisper API
-        # 目前返回 None，依赖描述作为 fallback
+        # 占位实现:需要视频下载 -> 音频 -> Whisper API
+        # 目前返回 None,依赖描述作为 fallback
         return None

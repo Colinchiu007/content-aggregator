@@ -36,29 +36,29 @@
 {% endif %}
 
 {# ===== 左右对照核心区域 ===== #}
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+<div class="compare-container">
     {# 左侧：原文 #}
-    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;display:flex;flex-direction:column">
-        <div style="background:#f5f5f5;padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">
+    <div class="compare-panel original">
+        <div class="compare-panel-header">
             <span style="font-weight:600;font-size:14px;color:var(--text-muted)">📄 原文</span>
             {% if article.original_title and article.original_title != article.title %}
             <span style="font-size:12px;color:var(--text-muted)">《{{ article.original_title }}》</span>
             {% endif %}
         </div>
-        <div id="left-panel" style="flex:1;overflow-y:auto;padding:16px;background:var(--bg);max-height:600px">
-            <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:14px;color:var(--text-muted)">{{ (article.original_content or article.metadata.get('original_content') or '') }}</pre>
+        <div class="compare-panel-body">
+            <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:14px">{{ (article.original_content or article.metadata.get('original_content') or '') }}</pre>
         </div>
     </div>
 
     {# 右侧：改写后 #}
-    <div style="border:2px solid var(--warning);border-radius:8px;overflow:hidden;display:flex;flex-direction:column">
-        <div style="background:var(--warning);padding:10px 16px;display:flex;align-items:center;gap:8px">
-            <span style="font-weight:600;font-size:14px;color:#fff">✨ 改写后</span>
+    <div class="compare-panel rewritten">
+        <div class="compare-panel-header" style="color:#fff">
+            <span style="font-weight:600;font-size:14px">✨ 改写后</span>
             {% if article.metadata.get('translate_to') %}
             <span style="font-size:12px;color:rgba(255,255,255,0.8)">→ 翻译为 {{ article.metadata.translate_to }}</span>
             {% endif %}
         </div>
-        <div id="right-panel" style="flex:1;overflow-y:auto;padding:16px;max-height:600px">
+        <div class="compare-panel-body">
             <pre id="article-body" style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:14px">{{ article.content }}</pre>
         </div>
     </div>
@@ -66,7 +66,7 @@
 
 {# 原文链接 #}
 {% if article.source_url %}
-<div class="card" style="padding:12px 20px;margin-bottom:16px">
+<div class="article-source-link">
     <span style="font-size:13px;color:var(--text-muted)">原文链接：</span>
     <a href="{{ article.source_url }}" target="_blank" style="color:var(--primary);font-size:13px">{{ article.source_url }}</a>
 </div>
@@ -104,66 +104,85 @@
 </div>
 
 {% if article.source_url %}
-<div class="card" style="padding:12px 20px">
+<div class="article-source-link">
     <span style="font-size:13px;color:var(--text-muted)">原文链接：</span>
-    <a href="{{ article.source_url }}" target="_blank" style="color:var(--primary);font-size:13px">{{ truncate(article.source_url, 80) }}</a>
+    <a href="{{ article.source_url }}" target="_blank">{{ truncate(article.source_url, 80) }}</a>
 </div>
 {% endif %}
 
 {% if article.tags and article.tags|length > 0 %}
-<div style="margin-bottom:16px">
+<div class="article-tags">
     {% for tag in article.tags %}
     <span class="tag">{{ tag }}</span>
     {% endfor %}
 </div>
 {% endif %}
 
-<div class="card">
+<div class="article-content" style="overflow:visible;max-height:none">
     {% if article.summary %}
-    <div style="padding:12px 16px;background:var(--bg);border-radius:6px;margin-bottom:16px;border-left:3px solid var(--primary)">
-        <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">摘要</div>
-        <div style="font-size:14px">{{ article.summary }}</div>
+    <div class="article-summary">
+        <div class="article-summary-label">摘要</div>
+        <div class="article-summary-content">{{ article.summary }}</div>
     </div>
     {% endif %}
-    <div id="article-body" class="article-content expanded">
-        <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:15px">{{ article.content }}</pre>
+    <div id="article-body" class="article-body expanded" style="overflow:visible;max-height:none">
+        <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:15px;overflow:visible;max-width:100%">{{ article.content }}</pre>
     </div>
 </div>
 {% endif %}
 
 {# ===== 微信排版发布弹窗 ===== #}
-<style>
-.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;display:none;align-items:center;justify-content:center}
-.modal-overlay.active{display:flex}
-.modal-content{background:#fff;border-radius:12px;padding:0;width:90%;max-width:720px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.2)}
-.modal-header{padding:16px 20px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
-.modal-header h3{font-size:16px;margin:0}
-.modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:#999}
-.modal-body{padding:20px;overflow-y:auto;flex:1}
-.modal-footer{padding:14px 20px;border-top:1px solid #eee;display:flex;justify-content:flex-end;gap:8px}
-.theme-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin:12px 0}
-.theme-option{padding:10px 12px;border:2px solid #eee;border-radius:8px;cursor:pointer;text-align:center;transition:all .15s;font-size:13px}
-.theme-option:hover{border-color:var(--primary);background:#f0f7ff}
-.theme-option.selected{border-color:var(--primary);background:#e6f4ff}
-.theme-option .theme-label{font-weight:600}
-.theme-option .theme-desc{font-size:11px;color:#999;margin-top:2px}
-#preview-area{border:1px solid #eee;border-radius:8px;padding:16px;min-height:200px;max-height:400px;overflow-y:auto;background:#fafafa;font-size:14px;line-height:1.75;margin-top:12px}
-#preview-area.loading{display:flex;align-items:center;justify-content:center;color:#999}
-.preview-bar{display:flex;gap:8px;align-items:center;margin:12px 0}
-.config-notice{background:#fffbe6;border:1px solid #ffe58f;border-radius:6px;padding:10px 14px;font-size:13px;color:#8c6f00;margin-bottom:12px}
-</style>
+
 <div class="modal-overlay" id="wechatPublishModal">
-<div class="modal-content">
+<div class="modal-content" style="max-width:680px">
 <div class="modal-header"><h3>✍️ 排版发布到微信</h3><button class="modal-close" onclick="closeWeChatPublish()">&times;</button></div>
 <div class="modal-body">
 <div id="publish-config-notice" class="config-notice" style="display:none">⚠️ 未配置微信公众号 API，只能预览排版效果。<a href="/settings">前往设置 →</a></div>
+
+<!-- 排版主题选择 -->
 <label style="font-weight:600;font-size:14px">选择排版主题</label>
 <div class="theme-grid" id="themeGrid">加载中...</div>
 <div class="preview-bar">
-<select id="themeSelect" onchange="onThemeChange()" style="flex:2"></select>
-<button class="btn btn-outline" onclick="loadPreview()" style="flex:0">预览</button>
+    <select id="themeSelect" onchange="onThemeChange()" style="flex:2"></select>
+    <button class="btn btn-outline" onclick="loadPreview()" style="flex:0">预览</button>
 </div>
 <div id="preview-area" class="loading">选择主题后点击「预览」查看排版效果</div>
+
+<hr style="margin:20px 0;border:none;border-top:1px solid #eee">
+
+<!-- 封面设置 -->
+<label style="font-weight:600;font-size:14px">封面设置</label>
+<div style="margin:12px 0">
+    <label style="display:inline-block;margin-right:16px;font-size:13px;cursor:pointer">
+        <input type="radio" name="coverSource" value="auto" checked onchange="onCoverSourceChange()"> 从文章提取首图
+    </label>
+    <label style="display:inline-block;margin-right:16px;font-size:13px;cursor:pointer">
+        <input type="radio" name="coverSource" value="ai" onchange="onCoverSourceChange()"> AI 生成封面
+    </label>
+    <label style="display:inline-block;font-size:13px;cursor:pointer">
+        <input type="radio" name="coverSource" value="existing" onchange="onCoverSourceChange()"> 选择已有封面
+    </label>
+</div>
+
+<!-- AI 生成封面选项 -->
+<div id="aiCoverOptions" style="display:none;margin:12px 0;padding:12px;background:#f9f9f9;border-radius:8px">
+    <input id="coverAiPrompt" placeholder="描述封面内容，如：科技感蓝色背景，AI机器人" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-bottom:8px">
+    <button class="btn btn-primary" style="font-size:13px;padding:6px 16px" onclick="generateCoverForPublish(this)">生成封面</button>
+    <div id="aiCoverResult" style="margin-top:8px;font-size:13px"></div>
+</div>
+
+<!-- 已有封面列表 -->
+<div id="existingCoverOptions" style="display:none;margin:12px 0">
+    <div id="coverListForPublish" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    <p id="noCoversHint" style="color:#999;font-size:13px;display:none">暂无封面，请先在<a href="/wechat-settings" target="_blank">微信设置</a>中上传或生成</p>
+</div>
+
+<!-- 封面预览 -->
+<div id="coverPreview" style="margin-top:12px;display:none">
+    <img id="coverPreviewImg" style="width:160px;height:90px;object-fit:cover;border-radius:6px;border:1px solid #ddd">
+    <div style="font-size:12px;color:#999;margin-top:4px">封面预览（900×500px 建议）</div>
+</div>
+
 </div>
 <div class="modal-footer">
 <button class="btn btn-outline" onclick="closeWeChatPublish()">取消</button>
@@ -312,6 +331,16 @@
         
         // Auto-preview after loading themes
         loadPreview();
+        
+        // 重置封面选择为默认（自动提取）
+        const autoRadio = document.querySelector('input[name="coverSource"][value="auto"]');
+        if (autoRadio) {
+            autoRadio.checked = true;
+            onCoverSourceChange();  // 触发切换，隐藏其他选项
+        }
+        document.getElementById('aiCoverResult').innerHTML = '';
+        delete document.getElementById('aiCoverResult').dataset?.coverId;
+        document.getElementById('coverPreview').style.display = 'none';
     }
 
     function closeWeChatPublish() {
@@ -332,17 +361,15 @@
     }
 
     async function loadPreview() {
+        console.log('[DEBUG] loadPreview() selectedTheme:', selectedTheme);
         const area = document.getElementById('preview-area');
         area.className = 'loading';
         area.textContent = '排版中...';
         try {
             const fd = new FormData();
             fd.append('theme', selectedTheme);
-            const resp = await fetch('/api/wechat/preview/' + ARTICLE_ID, {
-                method: 'POST', body: fd
-            });
-            if (!resp.ok) throw new Error('排版失败');
-            const result = await resp.json();
+            const result = await apiPost('/api/wechat/preview/' + ARTICLE_ID, fd);
+            console.log('[DEBUG] preview result theme:', result);
             area.className = '';
             area.innerHTML = result.html;
         } catch (e) {
@@ -358,20 +385,101 @@
         try {
             const fd = new FormData();
             fd.append('theme', selectedTheme);
-            const resp = await fetch('/api/wechat/publish/' + ARTICLE_ID, {
-                method: 'POST', body: fd
-            });
-            if (!resp.ok) {
-                const err = await resp.json();
-                throw new Error(err.detail || '发布失败');
+            
+            // 获取封面参数
+            const coverSource = document.querySelector('input[name="coverSource"]:checked')?.value || 'auto';
+            if (coverSource === 'existing') {
+                const selectedCoverId = document.querySelector('.cover-option.selected')?.dataset?.coverId;
+                if (selectedCoverId) fd.append('cover_id', selectedCoverId);
+            } else if (coverSource === 'ai') {
+                const generatedCoverId = document.getElementById('aiCoverResult')?.dataset?.coverId;
+                if (generatedCoverId) fd.append('cover_id', generatedCoverId);
             }
-            const result = await resp.json();
+            // coverSource === 'auto' 时不传 cover_id，后端自动提取首图
+            
+            const result = await apiPost('/api/wechat/publish/' + ARTICLE_ID, fd);
             showToast('✅ 已发布到微信公众号草稿箱!', 'success');
         } catch (e) {
             showToast('发布失败: ' + e.message, 'error');
         }
         btn.disabled = false;
         btn.textContent = '📤 发布到微信草稿箱';
+    }
+
+    // ---- 封面选择功能 ----
+    let selectedCoverId = null;
+
+    function onCoverSourceChange() {
+        const source = document.querySelector('input[name="coverSource"]:checked')?.value;
+        document.getElementById('aiCoverOptions').style.display = source === 'ai' ? 'block' : 'none';
+        document.getElementById('existingCoverOptions').style.display = source === 'existing' ? 'block' : 'none';
+        document.getElementById('coverPreview').style.display = 'none';
+        if (source === 'existing') loadCoversForPublish();
+    }
+
+    async function loadCoversForPublish() {
+        const list = document.getElementById('coverListForPublish');
+        list.innerHTML = '加载中...';
+        try {
+            const data = await (await fetch('/api/wechat/covers')).json();
+            list.innerHTML = '';
+            if (!data.covers || data.covers.length === 0) {
+                document.getElementById('noCoversHint').style.display = 'block';
+                return;
+            }
+            document.getElementById('noCoversHint').style.display = 'none';
+            data.covers.forEach(c => {
+                const el = document.createElement('div');
+                el.className = 'cover-option' + (c.id === selectedCoverId ? ' selected' : '');
+                el.dataset.coverId = c.id;
+                el.style = 'cursor:pointer;border:2px solid transparent;padding:2px;border-radius:6px;display:inline-block';
+                if (c.id === selectedCoverId) el.style.borderColor = '#667eea';
+                el.innerHTML = `<img src="/covers/" + c.path.split(/[\\\/]/).pop() + '" style="width:80px;height:45px;object-fit:cover;border-radius:4px" onerror="this.style.display=\'none\'">`;
+                el.onclick = () => selectCoverForPublish(c.id, c.path);
+                list.appendChild(el);
+            });
+        } catch (e) {
+            list.innerHTML = '<span style="color:red;font-size:12px">加载失败</span>';
+        }
+    }
+
+    function selectCoverForPublish(coverId, coverPath) {
+        selectedCoverId = coverId;
+        document.querySelectorAll('#coverListForPublish .cover-option').forEach(el => {
+            el.style.borderColor = el.dataset.coverId === coverId ? '#667eea' : 'transparent';
+        });
+        document.getElementById('coverPreviewImg').src = '/covers/' + coverPath.split(/[\\\/]/).pop();
+        document.getElementById('coverPreview').style.display = 'block';
+    }
+
+    async function generateCoverForPublish(btn) {
+        const prompt = document.getElementById('coverAiPrompt').value.trim();
+        if (!prompt) { showToast('请输入封面描述', 'warning'); return; }
+        btn.disabled = true;
+        btn.textContent = '生成中...';
+        try {
+            const fd = new FormData();
+            fd.append('prompt', prompt);
+            fd.append('size', 'cover');
+            const result = await apiPost('/api/wechat/generate-cover', fd);
+            document.getElementById('aiCoverResult').innerHTML = '✅ 生成成功！<a href="/covers/' + result.cover_id + '.png" target="_blank">查看</a>';
+            document.getElementById('aiCoverResult').dataset.coverId = result.cover_id;
+            document.getElementById('coverPreviewImg').src = '/covers/' + result.cover_id + '.png';
+            document.getElementById('coverPreview').style.display = 'block';
+            showToast('✅ 封面生成成功', 'success');
+        } catch (e) {
+            // 针对未配置 API 的错误显示友好提示
+            if (e.message && e.message.includes('未配置图片生成')) {
+                showToast('⚠️ 缺少图片生成模型的 API，请在设置中进行添加', 'error');
+                // 显示设置链接
+                const settingsLink = '<br><a href="/wechat-settings" style="color:#667eea;text-decoration:underline">前往微信设置页面</a>';
+                document.getElementById('aiCoverResult').innerHTML = '❌ ' + e.message + settingsLink;
+            } else {
+                showToast('生成失败: ' + e.message, 'error');
+            }
+        }
+        btn.disabled = false;
+        btn.textContent = '生成封面';
     }
 
     // Close modal on overlay click

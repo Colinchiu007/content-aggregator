@@ -1,360 +1,886 @@
 {# 模型与采集设置页面 #}
+
 {% extends "base.html" %}
 
-{% block title %}模型和采集设置 - Content Aggregator{% endblock %}
+
+
+{% block title %}模型API设置 - Content Aggregator{% endblock %}
+
+
 
 {% block content %}
+
 <div class="settings-layout">
-    <h1>📋 模型和采集设置</h1>
-    <p class="subtitle">配置推理模型、语音识别、平台采集参数</p>
+
+    <h1>📋 模型API设置</h1>
+
+    <p class="subtitle">配置推理模型、语音识别、图片生成模型、平台采集参数</p>
+
+
 
     <!-- 消息提示 -->
+
     <div id="message" class="alert" style="display: none;"></div>
 
+
+
     <!-- ==================== 推理模型 ==================== -->
+
     <div class="card">
+
         <div class="card-header">
+
             <h2>🤖 推理模型（LLM）</h2>
+
             <button class="btn btn-sm btn-primary" onclick="showAddModal('llm')">+ 添加模型</button>
+
         </div>
+
         <div id="llm-models" class="model-grid">
+
             <p class="loading">加载中...</p>
+
         </div>
+
     </div>
+
+
 
     <!-- ==================== 语音识别 ==================== -->
+
     <div class="card">
+
         <div class="card-header">
+
             <h2>🎤 语音识别（ASR）</h2>
+
             <button class="btn btn-sm btn-primary" onclick="showAddModal('asr')">+ 添加模型</button>
+
         </div>
+
         <div id="asr-models" class="model-grid">
+
             <p class="loading">加载中...</p>
+
         </div>
+
     </div>
+
+
+
+    <!-- ==================== 图片生成模型 ==================== -->
+
+    <div class="card">
+
+        <div class="card-header">
+
+            <h2>🎨 图片生成模型（Image）</h2>
+
+        </div>
+
+        <div id="image-models" class="model-grid">
+
+            <p class="loading">加载中...</p>
+
+        </div>
+
+    </div>
+
+
 
     <!-- ==================== 平台采集 ==================== -->
+
     <div class="card">
+
         <h2>📱 平台采集配置</h2>
+
         <div class="form-grid">
+
             <div class="form-group">
+
                 <label for="xhs-cookie">小红书 Cookie</label>
+
                 <textarea id="xhs-cookie" placeholder="登录小红书网页后，F12 获取 Cookie" rows="3">{{ config.sources.xiaohongshu.cookie if config.sources.xiaohongshu.cookie else '' }}</textarea>
+
                 <small>小红书网页登录后的 Cookie（用于采集需要登录的内容）</small>
+
             </div>
+
         </div>
+
         <div class="form-actions" style="margin-top:15px;">
+
             <button class="btn btn-primary" onclick="saveCookie()">💾 保存 Cookie</button>
+
         </div>
+
     </div>
+
 </div>
+
+
 
 <!-- ==================== 新增/编辑模型弹窗 ==================== -->
+
 <div id="modelModal" class="modal" style="display:none;">
+
     <div class="modal-overlay"></div>
+
     <div class="modal-content">
+
         <div class="modal-header">
+
             <h3 id="modal-title">添加模型</h3>
+
             <button class="modal-close" onclick="closeModal()">&times;</button>
+
         </div>
+
         <form id="model-form" onsubmit="return saveModel(event)">
+
             <input type="hidden" id="edit-type" value="">
+
             <input type="hidden" id="edit-id" value="">
+
             <div class="form-grid">
+
                 <div class="form-group">
+
                     <label for="model-name">模型名称 *</label>
+
                     <input type="text" id="model-name" required placeholder="如：GPT-4、DeepSeek">
+
                 </div>
+
                 <div class="form-group">
+
                     <label for="model-url">API 端点 *</label>
+
                     <input type="text" id="model-url" required placeholder="http://127.0.0.1:19000/proxy/llm">
+
                     <small>OpenAI 兼容模式的 API 地址</small>
+
                 </div>
+
                 <div class="form-group">
+
                     <label for="model-key">API Key</label>
+
                     <input type="password" id="model-key" placeholder="留空表示无需 Key">
+
                 </div>
+
                 <div class="form-group">
+
                     <label for="model-id">模型 ID *</label>
+
                     <input type="text" id="model-id" required placeholder="gpt-4o, deepseek-chat">
+
                     <small>调用时使用的模型标识符</small>
+
                 </div>
+
             </div>
+
             <div class="modal-footer">
+
                 <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+
                 <button type="submit" class="btn btn-primary" id="modal-submit">添加</button>
+
             </div>
+
         </form>
+
     </div>
+
 </div>
 
+
+
 <style>
+
     .settings-layout { max-width: 900px; margin: 0 auto; padding: 20px; }
+
     .subtitle { color: #666; margin-bottom: 25px; }
+
     .card {
+
         background: white; border-radius: 10px; padding: 25px; margin-bottom: 25px;
+
         box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+
     }
+
     .card-header {
+
         display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;
+
     }
+
     .card-header h2 { margin: 0; font-size: 1.2em; }
 
+
+
     /* 模型网格 */
+
     .model-grid { display: grid; gap: 12px; }
+
     .model-card {
+
         display: flex; align-items: center; justify-content: space-between;
+
         padding: 15px 18px; border: 1px solid #e8e8e8; border-radius: 8px;
+
         background: #fafafa; transition: all 0.15s;
+
     }
+
     .model-card:hover { border-color: #4A90D9; background: #f5f8ff; }
+
     .model-card.default { border-color: #28a745; background: #f0fff4; }
+
     .model-info { flex: 1; min-width: 0; }
+
     .model-name {
+
         font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px;
+
     }
+
     .model-name .badge-default {
+
         font-size: 11px; background: #28a745; color: white; padding: 2px 8px;
+
         border-radius: 10px; font-weight: 500;
+
     }
+
     .model-meta {
+
         font-size: 12px; color: #888; margin-top: 3px;
+
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+
     }
+
     .model-actions { display: flex; gap: 6px; flex-shrink: 0; margin-left: 12px; }
+
     .model-actions .btn {
+
         padding: 5px 12px; font-size: 12px; border-radius: 4px;
+
         border: 1px solid #ddd; background: white; cursor: pointer;
+
     }
+
     .model-actions .btn:hover { background: #f0f0f0; }
+
     .model-actions .btn-default { border-color: #28a745; color: #28a745; }
+
     .model-actions .btn-default:hover { background: #28a745; color: white; }
+
     .model-actions .btn-edit { border-color: #4A90D9; color: #4A90D9; }
+
     .model-actions .btn-edit:hover { background: #4A90D9; color: white; }
+
     .model-actions .btn-delete { border-color: #dc3545; color: #dc3545; }
+
     .model-actions .btn-delete:hover { background: #dc3545; color: white; }
 
+
+
     /* 按钮 */
+
     .btn {
+
         padding: 10px 20px; border: none; border-radius: 5px; font-size: 14px;
+
         cursor: pointer; transition: all 0.15s; text-decoration: none;
+
     }
+
     .btn-primary { background: #4A90D9; color: white; }
+
     .btn-primary:hover { background: #3A7BC8; }
+
     .btn-secondary { background: #f0f0f0; color: #333; }
+
     .btn-secondary:hover { background: #ddd; }
+
     .btn-sm { padding: 6px 14px; font-size: 13px; }
 
+
+
     /* 弹窗 */
+
     .modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; }
+
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); }
+
     .modal-content {
+
         position: relative; background: white; border-radius: 12px; padding: 25px 30px;
+
         width: 480px; max-width: 90vw; max-height: 85vh; overflow-y: auto;
+
         box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+
     }
+
     .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+
     .modal-header h3 { margin: 0; font-size: 18px; }
+
     .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; padding: 0; }
+
     .modal-close:hover { color: #333; }
+
     .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
 
+
+
     /* 表单 */
+
     .form-grid { display: grid; gap: 16px; }
+
     .form-group { display: flex; flex-direction: column; }
+
     .form-group label { font-weight: 600; margin-bottom: 6px; color: #333; font-size: 13px; }
+
     .form-group input, .form-group textarea {
+
         padding: 10px 12px; border: 1px solid #ddd; border-radius: 5px;
+
         font-size: 14px; font-family: inherit;
+
     }
+
     .form-group input:focus, .form-group textarea:focus {
+
         border-color: #4A90D9; outline: none; box-shadow: 0 0 0 2px rgba(74,144,217,0.15);
+
     }
+
     .form-group small { margin-top: 4px; color: #888; font-size: 12px; }
+
     .form-actions { display: flex; gap: 12px; }
 
+
+
     /* 消息 */
+
     .alert {
+
         padding: 12px 18px; border-radius: 6px; margin-bottom: 20px; font-size: 14px;
+
     }
+
     .alert.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+
     .alert.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
 
+
+
     .loading { color: #888; font-size: 14px; padding: 20px; text-align: center; }
+
+
+
+    /* 图片模型 Key 输入框 */
+
+    .key-input:focus { border-color: #4A90D9; outline: none; box-shadow: 0 0 0 2px rgba(74,144,217,0.15); }
+
 </style>
 
+
+
 <script>
+
 // ========== 全局状态 ==========
-let modelData = { llm: [], asr: [] };
-let defaultIds = { llm: '', asr: '' };
+
+let modelData = { llm: [], asr: [], image: [] };
+
+let defaultIds = { llm: '', asr: '', image: '' };
+
+
 
 // ========== 初始化 ==========
+
 document.addEventListener('DOMContentLoaded', async () => {
+
     await loadModels('llm');
+
     await loadModels('asr');
+
+    await loadModels('image');
+
 });
 
+
+
 // ========== 消息提示 ==========
+
 function showMessage(text, type, duration = 3000) {
+
     const el = document.getElementById('message');
+
     el.textContent = text;
+
     el.className = 'alert ' + type;
+
     el.style.display = 'block';
+
     clearTimeout(window._msgTimer);
+
     if (duration > 0) {
+
         window._msgTimer = setTimeout(() => { el.style.display = 'none'; }, duration);
+
     }
+
 }
+
+
 
 // ========== 加载模型列表 ==========
+
 async function loadModels(type) {
+
     const container = document.getElementById(type + '-models');
+
     container.innerHTML = '<p class="loading">加载中...</p>';
+
     try {
+
         const resp = await authFetch('/api/models/' + type);
+
         const data = await resp.json();
+
         modelData[type] = data.models || [];
+
         defaultIds[type] = data.default_model_id || '';
-        renderModels(type);
+
+        if (type === 'image') {
+
+            renderImageModels();
+
+        } else {
+
+            renderModels(type);
+
+        }
+
     } catch (e) {
+
         container.innerHTML = '<p style="color:#dc3545;">加载失败: ' + e.message + '</p>';
+
     }
+
 }
+
+
 
 // ========== 渲染模型卡片 ==========
+
 function renderModels(type) {
+
     const container = document.getElementById(type + '-models');
+
     const models = modelData[type];
+
     const defId = defaultIds[type];
 
+
+
     if (!models || models.length === 0) {
+
         container.innerHTML =
+
             '<div class="model-card" style="justify-content:center;color:#888;">暂无配置的模型，点击上方「+ 添加模型」开始</div>';
+
         return;
+
     }
+
+
 
     container.innerHTML = models.map(m => {
+
         const isDefault = m.id === defId;
+        const isJimeng = (m.name || '').includes('即梦') || m.provider === 'jimeng';
+
         return `<div class="model-card ${isDefault ? 'default' : ''}">
+
             <div class="model-info">
+
                 <div class="model-name">
+
                     ${m.name || '未命名'}
+
                     ${isDefault ? '<span class="badge-default">默认</span>' : ''}
+
                 </div>
+
                 <div class="model-meta">${m.base_url} · ${m.model_id}</div>
+
             </div>
+
             <div class="model-actions">
+
                 ${isDefault ? '' : `<button class="btn btn-default" onclick="setDefault('${type}','${m.id}')">设为默认</button>`}
+
                 <button class="btn btn-edit" onclick="showEditModal('${type}','${m.id}')">编辑</button>
+
                 <button class="btn btn-delete" onclick="deleteModel('${type}','${m.id}')">删除</button>
+
             </div>
+
         </div>`;
+
     }).join('');
+
 }
 
-// ========== 设置默认模型 ==========
-async function setDefault(type, id) {
-    try {
-        const resp = await authFetch('/api/models/' + type + '/' + encodeURIComponent(id) + '/default', { method: 'POST' });
-        if (!resp.ok) throw new Error((await resp.json()).detail || '操作失败');
-        showMessage('✅ 默认模型已更新', 'success');
-        await loadModels(type);
-    } catch (e) {
-        showMessage('❌ ' + e.message, 'error');
+
+
+// ========== 渲染图片生成模型卡片（预设 Key 模式） ==========
+
+function renderImageModels() {
+
+    const container = document.getElementById('image-models');
+
+    const models = modelData['image'];
+
+    const defId = defaultIds['image'];
+
+
+
+    if (!models || models.length === 0) {
+
+        container.innerHTML = '<div class="model-card" style="justify-content:center;color:#888;">暂无预设的图片生成模型</div>';
+
+        return;
+
     }
+
+
+
+    container.innerHTML = models.map(m => {
+
+        const isDefault = m.id === defId;
+        const isJimeng = (m.name || '').includes('即梦') || m.provider === 'jimeng';
+
+        return `<div class="model-card ${isDefault ? 'default' : ''}">
+
+            <div class="model-info" style="flex:1;">
+
+                <div class="model-name">
+
+                    ${m.name || '未命名'}
+
+                    ${isDefault ? '<span class="badge-default">默认</span>' : ''}
+
+                </div>
+
+                <div class="model-meta">${m.base_url} · ${m.model_id || ''}</div>
+
+                <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+
+                    <input type="text" id="img-key-${m.id}" class="key-input"
+                           placeholder="${isJimeng ? 'Access Key ID（即梦）' : 'Key（Vidu）'}" value="${m.key_preview ? m.key_preview + '****' : ''}"
+                           data-key-preview="${m.key_preview || ''}"
+                           style="flex:1;max-width:350px;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;font-family:monospace;">
+                    ${isJimeng ? `<div><input type="text" id="img-secret-${m.id}" class="key-input" placeholder="Secret Access Key（即梦）" value="${m.secret_key_preview ? m.secret_key_preview + '****' : ''}" data-key-preview="${m.secret_key_preview || ''}" style="flex:1;max-width:350px;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:13px;font-family:monospace;"></div>` : ''}
+                    <button class="btn btn-sm btn-primary" onclick="saveImageKey('${m.id}')">Save Keys</button>                </div>
+
+            </div>
+
+            <div class="model-actions">
+
+                ${isDefault ? '' : `<button class="btn btn-default" onclick="setDefault('image','${m.id}')">设为当前</button>`}
+
+            </div>
+
+        </div>`;
+
+    }).join('');
+
 }
 
-// ========== 删除模型 ==========
-async function deleteModel(type, id) {
-    if (!confirm('确定要删除这个模型吗？')) return;
-    try {
-        const resp = await authFetch('/api/models/' + type + '/' + encodeURIComponent(id), { method: 'DELETE' });
-        if (!resp.ok) throw new Error((await resp.json()).detail || '操作失败');
-        showMessage('✅ 已删除', 'success');
-        await loadModels(type);
-    } catch (e) {
-        showMessage('❌ ' + e.message, 'error');
+
+
+// ========== 保存图片模型 API Key ==========
+
+async function saveImageKey(id) {
+    const keyInput = document.getElementById('img-key-' + id);
+    const secretInput = document.getElementById('img-secret-' + id);
+    let apiKey = keyInput ? keyInput.value.trim() : '';
+    let secretKey = secretInput ? secretInput.value.trim() : '';
+    // If value equals the preview pattern (first4 + '****'), user didn't change it
+    const keyPreview = keyInput ? keyInput.dataset.keyPreview || '' : '';
+    const secretPreview = secretInput ? secretInput.dataset.keyPreview || '' : '';
+    const keyUnchanged = keyPreview && apiKey === keyPreview + '****';
+    const secretUnchanged = secretPreview && secretKey === secretPreview + '****';
+    if (keyUnchanged && secretUnchanged) {
+        showToast('No changes', 'info');
+        return;
     }
-}
-
-// ========== 弹窗管理 ==========
-function showAddModal(type) {
-    document.getElementById('modal-title').textContent = type === 'llm' ? '添加推理模型' : '添加语音识别模型';
-    document.getElementById('edit-type').value = type;
-    document.getElementById('edit-id').value = '';
-    document.getElementById('model-form').reset();
-    document.getElementById('modal-submit').textContent = '添加';
-    document.getElementById('modelModal').style.display = 'flex';
-}
-
-function showEditModal(type, id) {
-    const model = modelData[type].find(m => m.id === id);
-    if (!model) return;
-    document.getElementById('modal-title').textContent = '编辑模型';
-    document.getElementById('edit-type').value = type;
-    document.getElementById('edit-id').value = id;
-    document.getElementById('model-name').value = model.name || '';
-    document.getElementById('model-url').value = model.base_url || '';
-    document.getElementById('model-key').value = model.api_key || '';
-    document.getElementById('model-id').value = model.model_id || '';
-    document.getElementById('modal-submit').textContent = '保存';
-    document.getElementById('modelModal').style.display = 'flex';
-}
-
-function closeModal() {
-    document.getElementById('modelModal').style.display = 'none';
-}
-
-// ========== 保存模型（新增/编辑） ==========
-async function saveModel(event) {
-    event.preventDefault();
-    const type = document.getElementById('edit-type').value;
-    const editId = document.getElementById('edit-id').value;
-    const payload = {
-        name: document.getElementById('model-name').value.trim(),
-        base_url: document.getElementById('model-url').value.trim(),
-        api_key: document.getElementById('model-key').value.trim(),
-        model_id: document.getElementById('model-id').value.trim(),
-    };
-    if (!payload.name || !payload.base_url || !payload.model_id) {
-        showMessage('请填写所有必填项', 'error');
-        return false;
+    // For changed fields, use the new value. For unchanged fields, send nothing.
+    // Skip the PUT entirely if only unchanged preview is present
+    const body = {};
+    if (!keyUnchanged) body.api_key = apiKey;
+    if (!secretUnchanged) body.secret_key = secretKey;
+    if (Object.keys(body).length === 0) {
+        showToast('No changes', 'info');
+        return;
     }
     try {
-        let url = '/api/models/' + type;
-        let method = 'POST';
-        if (editId) { url += '/' + encodeURIComponent(editId); method = 'PUT'; }
-        const resp = await authFetch(url, {
-            method: method,
+        const resp = await authFetch('/api/models/image/' + encodeURIComponent(id), {
+            method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-        if (!resp.ok) throw new Error((await resp.json()).detail || '操作失败');
-        showMessage('✅ 模型已保存', 'success');
-        closeModal();
-        await loadModels(type);
-    } catch (e) {
-        showMessage('❌ ' + e.message, 'error');
-    }
-    return false;
-}
-
-// ========== 保存 Cookie ==========
-async function saveCookie() {
-    const cookie = document.getElementById('xhs-cookie').value.trim();
-    try {
-        const resp = await authFetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sources: { xiaohongshu: { cookie: cookie } } }),
+            body: JSON.stringify(body),
         });
         if (!resp.ok) throw new Error((await resp.json()).detail || '保存失败');
-        showMessage('✅ Cookie 已保存', 'success');
+        showToast(' Keys saved', 'success');
     } catch (e) {
-        showMessage('❌ ' + e.message, 'error');
+        showToast(' ' + e.message, 'error');
     }
+
+// ========== 设置默认模型 ==========
+
+async function setDefault(type, id) {
+
+    try {
+
+        const resp = await authFetch('/api/models/' + type + '/' + encodeURIComponent(id) + '/default', { method: 'POST' });
+
+        if (!resp.ok) throw new Error((await resp.json()).detail || '操作失败');
+
+        showMessage('✅ 默认模型已更新', 'success');
+
+        await loadModels(type);
+
+    } catch (e) {
+
+        showMessage('❌ ' + e.message, 'error');
+
+    }
+
 }
 
+
+
+// ========== 删除模型 ==========
+
+async function deleteModel(type, id) {
+
+    if (!confirm('确定要删除这个模型吗？')) return;
+
+    try {
+
+        const resp = await authFetch('/api/models/' + type + '/' + encodeURIComponent(id), { method: 'DELETE' });
+
+        if (!resp.ok) throw new Error((await resp.json()).detail || '操作失败');
+
+        showMessage('✅ 已删除', 'success');
+
+        await loadModels(type);
+
+    } catch (e) {
+
+        showMessage('❌ ' + e.message, 'error');
+
+    }
+
+}
+
+
+
+// ========== 弹窗管理 ==========
+
+function showAddModal(type) {
+
+    document.getElementById('modal-title').textContent = type === 'llm' ? '添加推理模型' : '添加语音识别模型';
+
+    document.getElementById('edit-type').value = type;
+
+    document.getElementById('edit-id').value = '';
+
+    document.getElementById('model-form').reset();
+
+    document.getElementById('modal-submit').textContent = '添加';
+
+    document.getElementById('modelModal').style.display = 'flex';
+
+}
+
+
+
+function showEditModal(type, id) {
+
+    const model = modelData[type].find(m => m.id === id);
+
+    if (!model) return;
+
+    document.getElementById('modal-title').textContent = '编辑模型';
+
+    document.getElementById('edit-type').value = type;
+
+    document.getElementById('edit-id').value = id;
+
+    document.getElementById('model-name').value = model.name || '';
+
+    document.getElementById('model-url').value = model.base_url || '';
+
+    document.getElementById('model-key').value = model.api_key || '';
+
+    document.getElementById('model-id').value = model.model_id || '';
+
+    document.getElementById('modal-submit').textContent = '保存';
+
+    document.getElementById('modelModal').style.display = 'flex';
+
+}
+
+
+
+function closeModal() {
+
+    document.getElementById('modelModal').style.display = 'none';
+
+}
+
+
+
+// ========== Toast 消息提示（可随滚动可见） ==========
+
+function showToast(text, type, duration = 3000) {
+
+    const existing = document.querySelector('.toast-notification');
+
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+
+    toast.className = 'toast-notification';
+
+    toast.innerHTML = text;
+
+    toast.style.cssText = 'position:fixed;bottom:30px;right:30px;z-index:9999;padding:14px 24px;border-radius:8px;font-size:14px;box-shadow:0 4px 20px rgba(0,0,0,0.2);color:white;max-width:360px;' +
+
+        (type === 'success' ? 'background:#28a745;' : 'background:#dc3545;');
+
+    document.body.appendChild(toast);
+
+    setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, duration);
+
+}
+
+}
+
+
+// ========== 保存模型（新增/编辑） ==========
+
+async function saveModel(event) {
+
+    event.preventDefault();
+
+    const type = document.getElementById('edit-type').value;
+
+    const editId = document.getElementById('edit-id').value;
+
+    const payload = {
+
+        name: document.getElementById('model-name').value.trim(),
+
+        base_url: document.getElementById('model-url').value.trim(),
+
+        api_key: document.getElementById('model-key').value.trim(),
+
+        model_id: document.getElementById('model-id').value.trim(),
+
+    };
+
+    if (!payload.name || !payload.base_url || !payload.model_id) {
+
+        showMessage('请填写所有必填项', 'error');
+
+        return false;
+
+    }
+
+    try {
+
+        let url = '/api/models/' + type;
+
+        let method = 'POST';
+
+        if (editId) { url += '/' + encodeURIComponent(editId); method = 'PUT'; }
+
+        const resp = await authFetch(url, {
+
+            method: method,
+
+            headers: { 'Content-Type': 'application/json' },
+
+            body: JSON.stringify(payload),
+
+        });
+
+        if (!resp.ok) throw new Error((await resp.json()).detail || '操作失败');
+
+        showMessage('✅ 模型已保存', 'success');
+
+        closeModal();
+
+        await loadModels(type);
+
+    } catch (e) {
+
+        showMessage('❌ ' + e.message, 'error');
+
+    }
+
+    return false;
+
+}
+
+
+
+// ========== 保存 Cookie ==========
+
+async function saveCookie() {
+
+    const cookie = document.getElementById('xhs-cookie').value.trim();
+
+    try {
+
+        const resp = await authFetch('/api/settings', {
+
+            method: 'POST',
+
+            headers: { 'Content-Type': 'application/json' },
+
+            body: JSON.stringify({ sources: { xiaohongshu: { cookie: cookie } } }),
+
+        });
+
+        if (!resp.ok) throw new Error((await resp.json()).detail || '保存失败');
+
+        showMessage('✅ Cookie 已保存', 'success');
+
+    } catch (e) {
+
+        showMessage('❌ ' + e.message, 'error');
+
+    }
+
+}
+
+
+
 // 遮罩层点击不关闭弹窗（用户编辑信息时不误操作）
+
 </script>
+
 {% endblock %}

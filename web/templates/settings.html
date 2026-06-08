@@ -304,7 +304,7 @@
             }
         };
 
-        const resp = await fetch('/api/config', {
+        const resp = await authFetch('/api/config', {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(cfg)

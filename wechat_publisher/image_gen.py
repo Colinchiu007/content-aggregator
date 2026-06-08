@@ -74,21 +74,25 @@ SIZE_PRESETS = {
         "doubao": "2952x1256", "openai": _DEFAULT, "gemini": _DEFAULT,
         "dashscope": _DEFAULT, "minimax": _DEFAULT, "replicate": _DEFAULT,
         "azure_openai": _DEFAULT, "openrouter": _DEFAULT, "jimeng": _DEFAULT,
+        "vidu": _DEFAULT,
     },
     "article": {
         "doubao": "2560x1440", "openai": _DEFAULT, "gemini": _DEFAULT,
         "dashscope": _DEFAULT, "minimax": _DEFAULT, "replicate": _DEFAULT,
         "azure_openai": _DEFAULT, "openrouter": _DEFAULT, "jimeng": _DEFAULT,
+        "vidu": _DEFAULT,
     },
     "vertical": {
         "doubao": "1088x2560", "openai": _DEFAULT_V, "gemini": _DEFAULT_V,
         "dashscope": _DEFAULT_V, "minimax": _DEFAULT_V, "replicate": _DEFAULT_V,
         "azure_openai": _DEFAULT_V, "openrouter": _DEFAULT_V, "jimeng": _DEFAULT_V,
+        "vidu": _DEFAULT_V,
     },
     "square": {
         "doubao": "2048x2048", "openai": _DEFAULT_SQ, "gemini": _DEFAULT_SQ,
         "dashscope": _DEFAULT_SQ, "minimax": _DEFAULT_SQ, "replicate": _DEFAULT_SQ,
         "azure_openai": _DEFAULT_SQ, "openrouter": _DEFAULT_SQ, "jimeng": _DEFAULT_SQ,
+        "vidu": _DEFAULT_SQ,
     },
 }
 
@@ -595,21 +599,65 @@ class JimengProvider(ImageProvider):
                 "req_key": self._model, "task_id": task_id,
             })
             code = result.get("code")
+            data = result.get("data", {})
+            status = data.get("status", "")
             if code == 10000:
-                data = result.get("data", {})
                 b64_list = data.get("binary_data_base64", [])
                 if b64_list:
                     return base64.b64decode(b64_list[0])
                 urls = data.get("image_urls", [])
                 if urls:
                     return _download_image(urls[0])
+                # Still in queue/running/generating, keep polling
+                if status in ("in_queue", "running", "generating", ""):
+                    continue
                 raise ValueError(f"No image data in Jimeng result: {result}")
             if code and code != 10000:
-                status = result.get("data", {}).get("status")
                 if status in ("failed", "canceled"):
                     raise ValueError(f"Jimeng task failed: {result}")
 
         raise ValueError("Jimeng polling timeout")
+
+
+
+class ViduProvider(ImageProvider):
+    """Vidu AI image generation via vidu.cn API."""
+
+    provider_key = "vidu"
+
+    def __init__(self, api_key: str, model: str = "viduq2",
+                 base_url: str = "https://api.vidu.cn", **_kw):
+        self._api_key = api_key
+        self._model = model
+        self._base_url = base_url
+
+    def generate(self, prompt: str, size: str) -> bytes:
+        w, h = 1792, 1024
+        try:
+            w, h = (int(x) for x in size.split("x", 1))
+        except ValueError:
+            pass
+        resp = requests.post(
+            f"{self._base_url}/ent/v2/reference2image",
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Token{self._api_key}"},
+            json={"model": self._model, "prompt": prompt,
+                  "width": w, "height": h, "image_num": 1, "cfg": 7},
+            timeout=120,
+        )
+        data = resp.json()
+        if resp.status_code != 200:
+            raise ValueError(f"Vidu error ({resp.status_code}): "
+                             f"{data.get('message', str(data))}")
+        # Vidu returns img_url in response, or urls array
+        img_url = data.get("data", {}).get("img_url") or data.get("img_url")
+        if not img_url:
+            urls = data.get("data", {}).get("urls", [])
+            if urls:
+                img_url = urls[0]
+        if not img_url:
+            raise ValueError(f"No image URL in Vidu response: {data}")
+        return _download_image(img_url)
 
 
 # --- Provider registry ---
@@ -624,6 +672,7 @@ PROVIDERS = {
     "azure_openai": AzureOpenAIProvider,
     "openrouter": OpenRouterProvider,
     "jimeng": JimengProvider,
+    "vidu": ViduProvider,
 }
 
 

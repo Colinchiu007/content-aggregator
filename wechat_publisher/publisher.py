@@ -53,6 +53,7 @@ def create_draft(
         params={"access_token": access_token},
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
         headers={"Content-Type": "application/json; charset=utf-8"},
+        proxies={'http': None, 'https': None},
     )
 
     data = resp.json()
@@ -78,6 +79,7 @@ def get_draft(access_token: str, media_id: str) -> str:
         "https://api.weixin.qq.com/cgi-bin/draft/get",
         params={"access_token": access_token},
         json={"media_id": media_id},
+        proxies={'http': None, 'https': None},
     )
     resp.encoding = "utf-8"
     data = resp.json()
@@ -164,6 +166,7 @@ def create_image_post(
         params={"access_token": access_token},
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
         headers={"Content-Type": "application/json; charset=utf-8"},
+        proxies={'http': None, 'https': None},
     )
 
     data = resp.json()

@@ -1,19 +1,21 @@
-"""
+﻿"""
 微信发布路由 - 排版预览 + 发布到微信公众号
 
 依赖: wechat_publisher/(来自 wewrite toolkit)
 """
-import os, json, logging, tempfile, traceback
+import os, json, logging, tempfile, traceback, re, requests, time
 from pathlib import Path
+from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, Request, Form, HTTPException, Query
+from fastapi import APIRouter, Request, Form, HTTPException, Query, File, UploadFile
 from fastapi.responses import JSONResponse, HTMLResponse
 
 from wechat_publisher.theme import load_theme, list_themes
 from wechat_publisher.converter import WeChatConverter, ConvertResult
 from wechat_publisher import publisher as pub
 from wechat_publisher import wechat_api as wx
+
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,7 @@ async def api_preview_article(
     theme: str = Form(default="professional-clean"),
 ):
     """预览文章排版效果,返回转换后的 HTML"""
+    logger.warning(f"[DEBUG] api_preview_article called, article_id={article_id}, theme={theme}")
     art = _get_article_content(article_id)
     content = (art.get("content") or "")
     title = art.get("title") or ""
@@ -97,7 +100,7 @@ async def api_preview_article(
         return {
             "html": warning_html,
             "title": title,
-            "digest": "文章内容异常,需要重新改写",
+            "digest": "文章内容异常，需要重新改写",
             "images": [],
             "warning": "content_quality_issue",
         }
@@ -108,8 +111,9 @@ async def api_preview_article(
     try:
         converter = WeChatConverter(theme_name=theme)
         result: ConvertResult = converter.convert(md)
+        
         return {
-            "html": result.html,
+            "html": result.html,  # 已有内联样式，无需再加 <style> 标签
             "title": result.title,
             "digest": result.digest,
             "images": result.images,
@@ -145,7 +149,7 @@ async def api_preview_page(
 <html lang="zh-CN"><head><meta charset="UTF-8"><title>内容异常</title></head>
 <body style="padding:24px;text-align:center;background:#fef3c7">
 <h2 style="color:#92400e">⚠️ 文章内容异常</h2>
-<p>该文章 content 字段可能存储了 LLM 推理链而非正常文章内容(中文占比 {cn_ratio:.0%})。</p>
+<p>该文章 content 字段可能存储了 LLM 推理链而非正常文章内容（中文占比 {cn_ratio:.0%}）。</p>
 <p>请重新采集并改写此文章。</p>
 </body></html>""")
 
@@ -161,10 +165,10 @@ async def api_preview_page(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{result.title} - 排版预览</title>
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        * {{ margin:0; padding:0; box-sizing: border-box; }}
         body {{ background: #f5f5f5; padding: 20px; }}
         .preview-container {{
-            max-width: 677px; margin: 0 auto;
+            max-width: 677px; margin:0 auto;
             background: #fff; border-radius: 8px;
             box-shadow: 0 2px 12px rgba(0,0,0,0.08);
             overflow: hidden;
@@ -208,6 +212,7 @@ async def api_publish_article(
     request: Request,
     theme: str = Form(default="professional-clean"),
     author: str = Form(default=""),
+    cover_id: str = Form(default=""),
 ):
     """将文章发布到微信公众号草稿箱"""
     # 检查配置
@@ -231,16 +236,122 @@ async def api_publish_article(
         converter = WeChatConverter(theme_name=theme)
         result: ConvertResult = converter.convert(md)
 
-        # 2. 获取 access_token
+        # 2. 获取或生成 thumb_media_id
+        thumb_media_id = None
+        
+        # 如果提供了 cover_id，使用指定的封面
+        if cover_id:
+            covers = cfg.get("covers", [])
+            cover = next((c for c in covers if c.get("id") == cover_id), None)
+            if cover:
+                # 如果已经有 media_id，直接使用
+                if cover.get("media_id"):
+                    thumb_media_id = cover["media_id"]
+                else:
+                    # 需要上传封面到微信（传文件路径，upload_thumb 自己读取）
+                    cover_path = Path(__file__).parent.parent / "data" / cover["path"]
+                    if cover_path.exists():
+                        token_upload = wx.get_access_token(cfg["appid"], cfg["secret"])
+                        thumb_media_id = wx.upload_thumb(token_upload, str(cover_path))
+                        # 保存 media_id 到 config
+                        if thumb_media_id:
+                            cover["media_id"] = thumb_media_id
+                            cfg["covers"] = covers
+                            _save_config(cfg)
+                    else:
+                        logger.warning(f"Cover file not found: {cover_path}")
+            else:
+                logger.warning(f"Cover not found: {cover_id}")
+        
+        # 如果没有指定封面或封面处理失败，按优先级：正文图片 → 系统默认封面 → 绿色占位图
+        if not thumb_media_id:
+            # 优先级1：从正文提取首张图片
+            body_images = result.images if hasattr(result, 'images') and result.images else []
+            if not body_images:
+                # 也尝试从原始 content 中提取
+                body_images = re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', content)
+            if body_images:
+                try:
+                    img_url = body_images[0]
+                    logger.info(f"从正文提取首图作为封面: {img_url}")
+                    img_resp = requests.get(img_url, timeout=15)
+                    if img_resp.status_code == 200:
+                        # 保存到临时文件，upload_thumb 需要文件路径
+                        suffix = Path(img_url.split("?")[0]).suffix or ".jpg"
+                        import tempfile
+                        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                        tmp.write(img_resp.content)
+                        tmp_path = tmp.name
+                        tmp.close()
+                        try:
+                            token_up = wx.get_access_token(cfg["appid"], cfg["secret"])
+                            thumb_media_id = wx.upload_thumb(token_up, tmp_path)
+                            if thumb_media_id:
+                                logger.info(f"正文首图已上传为封面, media_id={thumb_media_id}")
+                        finally:
+                            try:
+                                Path(tmp_path).unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                    else:
+                        logger.warning(f"正文图片下载失败: HTTP {img_resp.status_code}")
+                except Exception as e_img:
+                    logger.warning(f"正文图片提取失败: {e_img}")
+            
+            # 优先级2：系统默认封面图（本地文件 + 缓存 media_id）
+            if not thumb_media_id:
+                default_cover_path = Path(__file__).parent.parent / "data" / "covers" / "default_cover.png"
+                if default_cover_path.exists():
+                    # 检查缓存的 media_id 是否仍有效（临时素材有效期 3 天，提前半天刷新）
+                    cached_mid = cfg.get("default_thumb_media_id")
+                    cached_at = cfg.get("default_thumb_uploaded_at", 0)
+                    now_ts = time.time()
+                    if cached_mid and (now_ts - cached_at) < 2.5 * 86400:
+                        thumb_media_id = cached_mid
+                        logger.info(f"复用缓存的默认封面 media_id: {thumb_media_id}")
+                    else:
+                        try:
+                            token_up = wx.get_access_token(cfg["appid"], cfg["secret"])
+                            thumb_media_id = wx.upload_thumb(token_up, str(default_cover_path))
+                            if thumb_media_id:
+                                cfg["default_thumb_media_id"] = thumb_media_id
+                                cfg["default_thumb_uploaded_at"] = now_ts
+                                _save_config(cfg)
+                                logger.info(f"默认封面上传成功, media_id={thumb_media_id}, 缓存至 {(now_ts + 2.5*86400):.0f}")
+                        except Exception as e_default:
+                            logger.warning(f"系统默认封面上传失败: {e_default}")
+            
+            # 优先级3：绿色占位图（最终保底）
+            if not thumb_media_id:
+                from PIL import Image
+                img = Image.new("RGB", (900, 500), color="#07C160")
+                import tempfile
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+                img.save(tmp, format="JPEG", quality=85)
+                tmp_path = tmp.name
+                tmp.close()
+                try:
+                    token_up = wx.get_access_token(cfg["appid"], cfg["secret"])
+                    thumb_media_id = wx.upload_thumb(token_up, tmp_path)
+                    if not thumb_media_id:
+                        raise HTTPException(500, "上传默认封面失败，无法发布")
+                finally:
+                    try:
+                        Path(tmp_path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+        # 3. 获取 access_token
         token = wx.get_access_token(cfg["appid"], cfg["secret"])
 
-        # 3. 发布草稿
+        # 4. 发布草稿
         draft = pub.create_draft(
             access_token=token,
             title=result.title or title,
             html=result.html,
             digest=result.digest[:120],
             author=author or None,
+            thumb_media_id=thumb_media_id,
         )
 
         return {
@@ -255,6 +366,45 @@ async def api_publish_article(
     except Exception as e:
         logger.error(f"Publish failed: {e}\n{traceback.format_exc()}")
         raise HTTPException(500, f"发布失败: {str(e)}")
+
+
+# ---- 默认封面管理 ----
+
+DEFAULT_COVER_PATH = Path(__file__).parent.parent / "data" / "covers" / "default_cover.png"
+
+@router.get("/default-cover")
+async def api_get_default_cover():
+    """获取默认封面信息"""
+    if DEFAULT_COVER_PATH.exists():
+        return {
+            "exists": True,
+            "url": "/covers/default_cover.png",
+            "size": DEFAULT_COVER_PATH.stat().st_size,
+            "updated_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(DEFAULT_COVER_PATH.stat().st_mtime)),
+        }
+    return {"exists": False}
+
+
+@router.post("/default-cover")
+async def api_upload_default_cover(request: Request, file: UploadFile = File(...)):
+    """上传/更新系统默认封面图（本地存储，发布时实时上传到微信）"""
+    allowed = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+    if file.content_type not in allowed:
+        raise HTTPException(400, f"不支持的类型: {file.content_type}，请上传 JPG/PNG/GIF/WebP")
+    DEFAULT_COVER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(400, "文件超过 10MB")
+    DEFAULT_COVER_PATH.write_bytes(content)
+    return {"success": True, "url": "/covers/default_cover.png", "size": len(content)}
+
+
+@router.delete("/default-cover")
+async def api_delete_default_cover():
+    """删除默认封面"""
+    if DEFAULT_COVER_PATH.exists():
+        DEFAULT_COVER_PATH.unlink()
+    return {"success": True}
 
 
 @router.get("/config")
@@ -332,7 +482,7 @@ async def api_theme_gallery(request: Request):
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>排版主题画廊</title>
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        * {{ margin:0; padding:0; box-sizing: border-box; }}
         body {{ font-family: -apple-system, 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }}
         h1 {{ font-size: 24px; margin-bottom: 8px; }}
         .subtitle {{ color: #666; margin-bottom: 20px; font-size: 14px; }}
@@ -399,5 +549,5 @@ async def wechat_settings_page(request: Request):
             theme_list.append({"name": name, "display_name": name, "description": ""})
     return templates.TemplateResponse(
         "wechat_settings.html",
-        {"request": request, "config": cfg, "themes": theme_list}
+        {"request": request, "cfg": cfg, "theme_list": theme_list}
     )

@@ -42,6 +42,7 @@ def get_access_token(appid: str, secret: str, force_refresh: bool = False) -> st
             "secret": secret,
         },
         timeout=API_TIMEOUT,
+        proxies={'http': None, 'https': None},
     )
     data = resp.json()
 
@@ -100,6 +101,7 @@ def upload_image(access_token: str, image_path: str) -> str:
             params={"access_token": access_token},
             files={"media": (path.name, f, content_type)},
             timeout=API_TIMEOUT,
+            proxies={'http': None, 'https': None},
         )
 
     data = resp.json()
@@ -128,6 +130,7 @@ def upload_thumb(access_token: str, image_path: str) -> str:
             params={"access_token": access_token, "type": "image"},
             files={"media": (path.name, f, content_type)},
             timeout=API_TIMEOUT,
+            proxies={'http': None, 'https': None},
         )
 
     data = resp.json()
