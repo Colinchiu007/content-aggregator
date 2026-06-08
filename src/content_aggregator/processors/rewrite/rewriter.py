@@ -52,6 +52,10 @@ class RewriteConfig:
     custom_prompt: str | None = None
     # 翻译目标语言。设为 "zh" 时先翻译成中文再改写
     translate_to: str | None = None
+    # 原文语言代码（如 "en", "ja", "ko"），用于动态拼接翻译提示词
+    source_language: str | None = None
+    # 原文语言中文名称（如 "英文", "日文"），显示用
+    source_language_name: str | None = None
     # 目标行业（可选，按行业语境改写）
     industry: str | None = None
 
@@ -347,9 +351,11 @@ class RewriteProcessor:
 
         # 翻译要求（先翻译成中文再改写）
         if config.translate_to == "zh":
+            source_lang = config.source_language_name or "英文"
             system_prompt = (
-                "【重要】原文是英文，请按以下步骤处理：\n"
-                "第一步：先将全文翻译成流畅的中文（保留原文的技术术语）。\n"
+                f"【重要】原文是{source_lang}，请按以下步骤处理：\n"
+                "第一步：先将全文翻译成流畅的中文（保留原文的技术术语、专有名词不翻译；"
+                "文化特定表达可加括号注释）。\n"
                 "第二步：对翻译后的中文内容按以下要求进行改写。\n"
                 "---\n"
             ) + system_prompt

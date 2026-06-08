@@ -70,10 +70,31 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container"></div>
 
+    <!-- 弹窗通用样式（所有页面共享） -->
+    <style>
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: none; }
+        .modal-overlay.active { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: #fff; border-radius: 12px; max-width: 680px; width: 90%; max-height: 85vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 1px solid #eee; }
+        .modal-header h3 { margin: 0; font-size: 18px; }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
+        .modal-body { padding: 20px 24px; }
+        .modal-footer { display: flex; gap: 10px; justify-content: flex-end; padding: 16px 24px; border-top: 1px solid #eee; }
+    </style>
+
     <script>
 
-        // Toast 通知
+        // Toast 通知（节流防抖：500ms 内相同消息只弹一次）
+        let _toastLastMsg = '';
+        let _toastTimer = null;
         function showToast(message, type = 'info') {
+            // 节流：相同消息 500ms 内不重复弹出
+            if (message === _toastLastMsg) {
+                if (_toastTimer) return; // 正在等待中，跳过
+                _toastTimer = setTimeout(() => { _toastTimer = null; }, 500);
+                return;
+            }
+            _toastLastMsg = message;
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;

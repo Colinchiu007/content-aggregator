@@ -30,6 +30,7 @@ from content_aggregator.sources.base import BaseSource, SourceConfig
 from content_aggregator.sources import get_collector
 from content_aggregator.sources.collectors.base_collector import BaseCollector, SourceResult
 from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
+from content_aggregator.processors.language_detector import LanguageDetector
 from content_aggregator.processors.formatter import ContentFormatter
 from content_aggregator.processors.translator import TranslatorProcessor, TranslationConfig, TranslationLanguage
 from content_aggregator.processors.seo import SEOProcessor, SEOConfig
@@ -924,7 +925,10 @@ class ContentPipeline:
             search_queries = source_cfg.get("search_queries", [])
             if search_queries:
                 search_order = source_cfg.get("search_order", "relevance")
-                search_limit = source_cfg.get("search_limit", 10)
+                # Fix: 优先级 order: dashboard limit > config search_limit > 默认 20
+                # 这样 dashboard 传的 limit_per_source 能正确生效
+                entry_limit = source_cfg.get("limit") or source_cfg.get("limit_per_source")
+                search_limit = entry_limit if entry_limit else source_cfg.get("search_limit", 20)
                 for query in search_queries:
                     if isinstance(query, str) and query.strip():
                         entry = dict(source_cfg)
@@ -1024,7 +1028,23 @@ class ContentPipeline:
                 # 改写
                 if rewrite and self.rewrite_processor:
                     logger.info(f"[process_contents] Rewriting: {content.title[:60]}")
-                    rewrite_result = await self.rewrite_processor.rewrite(content, progress_callback=progress_callback)
+
+                    # 语言检测（自动翻译非中文内容）
+                    detector = LanguageDetector(self.llm_config)
+                    lang_result = await detector.detect(content.content, content.title or "")
+                    logger.info(f"[process_contents] Language detected: {lang_result}")
+
+                    # 构建改写配置（含翻译设置）
+                    rewrite_cfg = RewriteConfig(
+                        strategy=RewriteStrategy.REWRITE,
+                        translate_to="zh" if lang_result.needs_translation() else None,
+                        source_language=lang_result.language if lang_result.needs_translation() else None,
+                        source_language_name=lang_result.language_name if lang_result.needs_translation() else None,
+                    )
+
+                    rewrite_result = await self.rewrite_processor.rewrite(
+                        content, rewrite_config=rewrite_cfg, progress_callback=progress_callback
+                    )
                     rewritten_text = rewrite_result.rewritten_content if rewrite_result.success else ""
                     # 如果改写结果为空，则使用原文内容（避免短描述改写后无内容）
                     final_content = rewritten_text if rewritten_text else content.content
@@ -1032,6 +1052,10 @@ class ContentPipeline:
                     metadata['original_content'] = content.content
                     metadata['original_title'] = content.title
                     metadata['original_author'] = content.author
+                    # 语言检测结果
+                    metadata['language_detected'] = lang_result.language
+                    metadata['language_name'] = lang_result.language_name
+                    metadata['translated_before_rewrite'] = lang_result.needs_translation()
                     article = Article(
                         id=str(uuid.uuid4()),
                         title=rewrite_result.title or content.title if rewrite_result.success else content.title,

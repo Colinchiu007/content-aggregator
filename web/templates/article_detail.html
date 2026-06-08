@@ -44,6 +44,9 @@
             {% if article.original_title and article.original_title != article.title %}
             <span style="font-size:12px;color:var(--text-muted)">《{{ article.original_title }}》</span>
             {% endif %}
+            {% if article.metadata.get('translated_before_rewrite') and article.metadata.get('language_name') %}
+            <span style="font-size:11px;background:var(--warning);color:#fff;padding:2px 6px;border-radius:3px;margin-left:6px">{{ article.metadata.language_name }}→中文</span>
+            {% endif %}
         </div>
         <div class="compare-panel-body">
             <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;line-height:1.8;font-size:14px">{{ (article.original_content or article.metadata.get('original_content') or '') }}</pre>
@@ -54,8 +57,8 @@
     <div class="compare-panel rewritten">
         <div class="compare-panel-header" style="color:#fff">
             <span style="font-weight:600;font-size:14px">✨ 改写后</span>
-            {% if article.metadata.get('translate_to') %}
-            <span style="font-size:12px;color:rgba(255,255,255,0.8)">→ 翻译为 {{ article.metadata.translate_to }}</span>
+            {% if article.metadata.get('translate_to') and article.metadata.get('language_name') %}
+            <span style="font-size:12px;color:rgba(255,255,255,0.8)">→ {{ article.metadata.language_name }} → 中文</span>
             {% endif %}
         </div>
         <div class="compare-panel-body">
@@ -92,7 +95,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <div style="display:flex;align-items:center;gap:4px;font-size:13px;margin-right:4px">
             <input type="checkbox" id="translateCheckbox" style="accent-color:var(--warning)">
-            <label for="translateCheckbox" style="cursor:pointer;color:var(--text-muted)">英文先翻译</label>
+            <label for="translateCheckbox" style="cursor:pointer;color:var(--text-muted)">{% if article.metadata.get('language_name') %}{{ article.metadata.language_name }}先翻译{% else %}英文先翻译{% endif %}</label>
         </div>
         <button class="btn btn-warning" id="rewriteBtn" onclick="rewriteArticle()">✨ AI 改写</button>
         <button class="btn btn-outline" onclick="copyContent()">📋 复制正文</button>

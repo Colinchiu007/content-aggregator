@@ -536,9 +536,14 @@ app.include_router(wechat_router)
 logger.info("已启用微信发布路由（/api/wechat）")
 
 # 封面图管理路由（上传 + AI 生成）
-from web.cover_router import router as cover_router
-app.include_router(cover_router)
-logger.info("已启用封面图管理路由（/api/wechat/upload-cover, /api/wechat/generate-cover）")
+try:
+    from web.cover_router import router as cover_router
+    app.include_router(cover_router)
+    logger.info("已启用封面图管理路由（/api/wechat/upload-cover, /api/wechat/generate-cover）")
+except ImportError:
+    logger.warning("封面图路由模块 web.cover_router 未找到，跳过")
+except Exception as e:
+    logger.warning(f"封面图路由加载失败: {e}，跳过")
 
 # Jinja2 全局函数
 def _formatTime(iso):
@@ -1308,9 +1313,24 @@ async def api_rewrite(
                     'EXPAND': RewriteStrategy.EXPAND,
                 }
                 cfg_strategy = strategy_map.get(strategy, RewriteStrategy.REWRITE)
+
+                # 语言检测：translate=yes 时自动识别原文语言
+                source_lang = None
+                source_lang_name = None
+                if translate == "yes":
+                    from content_aggregator.processors.language_detector import LanguageDetector
+                    detector = LanguageDetector(CONFIG.get("llm", {}))
+                    lang_result = await detector.detect(
+                        article.get("content", ""), article.get("title", "")
+                    )
+                    source_lang = lang_result.language
+                    source_lang_name = lang_result.language_name
+
                 config = RewriteConfig(
                     strategy=cfg_strategy,
                     translate_to="zh" if translate == "yes" else None,
+                    source_language=source_lang,
+                    source_language_name=source_lang_name,
                     industry=industry.strip() if industry else None,
                 )
                 # 调用改写，并传递进度回调
@@ -1331,6 +1351,11 @@ async def api_rewrite(
                     article["metadata"]["rewrite_strategy"] = config.strategy.value
                     article["metadata"]["translate_to"] = config.translate_to
                     article["metadata"]["original_content"] = original_text
+                    # 语言检测结果（手动触发改写也记录）
+                    if source_lang:
+                        article["metadata"]["language_detected"] = source_lang
+                        article["metadata"]["language_name"] = source_lang_name or source_lang
+                        article["metadata"]["translated_before_rewrite"] = True
                     article_store.save()
 
                     task_manager.update(task_id, status="done", progress=100,
