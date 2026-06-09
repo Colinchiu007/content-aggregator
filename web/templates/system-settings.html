@@ -145,6 +145,12 @@
             <div class="form-grid">
 
                 <div class="form-group">
+                    <label>预设 Provider</label>
+                    <label style="display:inline-block;margin-right:15px;"><input type="radio" name="model-provider" value="deepseek" checked onchange="onProviderChange()"> DeepSeek</label>
+                    <label style="display:inline-block;"><input type="radio" name="model-provider" value="sensenova" onchange="onProviderChange()"> 商汤 SenseNova</label>
+                    <small>选择预设后，API 端点和模型 ID 会自动填充（可手动修改）</small>
+                </div>
+                <div class="form-group">
 
                     <label for="model-name">模型名称 *</label>
 
@@ -641,7 +647,8 @@ async function saveImageKey(id) {
         showToast(' Keys saved', 'success');
     } catch (e) {
         showToast(' ' + e.message, 'error');
-    }
+    }
+
 }
 
 // ========== 设置默认模型 ==========
@@ -785,17 +792,14 @@ async function saveModel(event) {
 
     const editId = document.getElementById('edit-id').value;
 
-    const payload = {
-
-        name: document.getElementById('model-name').value.trim(),
-
-        base_url: document.getElementById('model-url').value.trim(),
-
-        api_key: document.getElementById('model-key').value.trim(),
-
-        model_id: document.getElementById('model-id').value.trim(),
-
-    };
+    const provider = document.querySelector('input[name="model-provider"]:checked')?.value || 'deepseek';
+        const payload = {
+            name: document.getElementById('model-name').value.trim(),
+            base_url: document.getElementById('model-url').value.trim(),
+            api_key: document.getElementById('model-key').value.trim(),
+            model_id: document.getElementById('model-id').value.trim(),
+            provider: provider,
+        };
 
     if (!payload.name || !payload.base_url || !payload.model_id) {
 
@@ -877,6 +881,22 @@ async function saveCookie() {
 
 // 遮罩层点击不关闭弹窗（用户编辑信息时不误操作）
 
-</script>
+
+    // ========= 预设 Provider 切换 ==========
+    function onProviderChange() {
+        const provider = document.querySelector('input[name="model-provider"]:checked')?.value;
+        const urlInput = document.getElementById('model-url');
+        const idInput = document.getElementById('model-id');
+        
+        if (provider === 'deepseek') {
+            urlInput.value = 'https://token.sensenova.cn/v1';
+            idInput.placeholder = 'deepseek-v4-flash, deepseek-v4-pro...';
+        } else if (provider === 'sensenova') {
+            urlInput.value = 'https://token.sensenova.cn/v1';
+            idInput.placeholder = 'sensenova-6.7-flash-lite, sensenova-6.7-pro...';
+        }
+    }
+    
+    </script>
 
 {% endblock %}
