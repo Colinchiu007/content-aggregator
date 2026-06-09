@@ -955,8 +955,8 @@ async def api_collect_all(
                 logger.info(f"[DEBUG] 转换为字典后文章数: {len(articles_data)}")
                 added = article_store.add_batch(articles_data)
                 logger.info(f"[DEBUG] 实际存储文章数: {added}, 存储后总数: {len(article_store.articles)}")
-                # 提取 article_ids，供任务列表跳转使用
-                article_ids = [a.id for a in articles_objs]
+                # 提取 article_ids，供任务列表跳转使用（必须从 articles_data 取，因为 add_batch 会赋 ID）
+                article_ids = [a["id"] for a in articles_data]
 
                 summary = result.get("summary", {})
                 msg = f"采集完成：{summary.get('success', 0)} 个源成功，{summary.get('total_articles', 0)} 篇文章"
@@ -1021,7 +1021,8 @@ async def api_collect_youtube(
                 articles_objs = result.get("articles", [])
                 articles_data = [a.to_dict() for a in articles_objs]
                 added = article_store.add_batch(articles_data)
-                article_ids = [a.id for a in articles_objs]
+                # 必须从 articles_data 取 ID（add_batch 会赋 ID，但不会影响 articles_objs）
+                article_ids = [a["id"] for a in articles_data]
 
                 summary = result.get("summary", {})
                 msg = f"YouTube 采集完成：{summary.get('success', 0)} 个任务成功，{summary.get('total_articles', 0)} 篇"
