@@ -964,14 +964,34 @@ async def api_collect_all(
                     "summary": summary,
                     "article_ids": article_ids
                 })
-                await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                    "status": "done", "message": msg})
+                # 广播完整任务信息（包含 result, started_at, finished_at）
+                task = task_manager.get(task_id)
+                await broadcast_ws({
+                    "type": "task_update",
+                    "task_id": task_id,
+                    "status": task["status"],
+                    "message": task["message"],
+                    "progress": task["progress"],
+                    "result": task.get("result"),
+                    "start_time": task.get("started_at"),
+                    "end_time": task.get("finished_at")
+                })
 
         except Exception as e:
             error_msg = f"采集失败: {e}"
             task_manager.update(task_id, status="error", message=error_msg)
-            await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "error", "message": error_msg})
+            # 广播完整任务信息（包含 finished_at）
+            task = task_manager.get(task_id)
+            await broadcast_ws({
+                "type": "task_update",
+                "task_id": task_id,
+                "status": task["status"],
+                "message": task["message"],
+                "progress": task["progress"],
+                "result": task.get("result"),
+                "start_time": task.get("started_at"),
+                "end_time": task.get("finished_at")
+            })
             logger.error(error_msg, exc_info=True)
 
     # 注册 asyncio.Task 到 TaskManager（支持取消）
@@ -1030,14 +1050,34 @@ async def api_collect_youtube(
                     "summary": summary,
                     "article_ids": article_ids
                 })
-                await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                    "status": "done", "message": msg})
+                # 广播完整任务信息（包含 result, started_at, finished_at）
+                task = task_manager.get(task_id)
+                await broadcast_ws({
+                    "type": "task_update",
+                    "task_id": task_id,
+                    "status": task["status"],
+                    "message": task["message"],
+                    "progress": task["progress"],
+                    "result": task.get("result"),
+                    "start_time": task.get("started_at"),
+                    "end_time": task.get("finished_at")
+                })
 
         except Exception as e:
             error_msg = f"YouTube 采集失败: {e}"
             task_manager.update(task_id, status="error", message=error_msg)
-            await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "error", "message": error_msg})
+            # 广播完整任务信息（包含 finished_at）
+            task = task_manager.get(task_id)
+            await broadcast_ws({
+                "type": "task_update",
+                "task_id": task_id,
+                "status": task["status"],
+                "message": task["message"],
+                "progress": task["progress"],
+                "result": task.get("result"),
+                "start_time": task.get("started_at"),
+                "end_time": task.get("finished_at")
+            })
             logger.error(error_msg, exc_info=True)
 
     # 注册 asyncio.Task 到 TaskManager（支持取消）

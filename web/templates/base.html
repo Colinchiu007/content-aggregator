@@ -87,7 +87,7 @@
         // Toast 通知（节流防抖：500ms 内相同消息只弹一次）
         let _toastLastMsg = '';
         let _toastTimer = null;
-        function showToast(message, type = 'info') {
+        function showToast(message, type = 'info', onClick = null) {
             // 节流：相同消息 500ms 内不重复弹出
             if (message === _toastLastMsg) {
                 if (_toastTimer) return; // 正在等待中，跳过
@@ -99,6 +99,16 @@
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
             toast.textContent = message;
+            
+            // 如果提供 onClick 回调，让 toast 可点击
+            if (onClick && typeof onClick === 'function') {
+                toast.style.cursor = 'pointer';
+                toast.addEventListener('click', () => {
+                    onClick();
+                    toast.remove();
+                });
+            }
+            
             container.appendChild(toast);
             setTimeout(() => toast.remove(), 4000);
         }
@@ -179,7 +189,7 @@
         }
 
         function handleTaskUpdate(data) {
-            const { task_id, status, message, progress } = data;
+            const { task_id, status, message, progress, result } = data;
 
             // 初始化状态跟踪对象（如果不存在）
             if (!handleTaskUpdate.lastStatus) {
@@ -190,12 +200,27 @@
             const lastStatus = handleTaskUpdate.lastStatus[task_id];
             if (status !== lastStatus) {
                 handleTaskUpdate.lastStatus[task_id] = status;
+
+                // 点击 Toast 跳转到任务列表
+                const onClick = () => { window.location.href = '/tasks'; };
+
                 if (status === 'running') {
-                    showToast('⏳ 任务开始: ' + message, 'info');
+                    showToast('⏳ 任务开始: ' + message, 'info', onClick);
                 } else if (status === 'done') {
-                    showToast('✅ 任务完成: ' + message, 'success');
+                    // 如果有 result 统计信息，显示详细消息
+                    let doneMsg = '✅ 任务完成: ' + message;
+                    if (result && result.summary) {
+                        const s = result.summary;
+                        const startTime = result.start_time ? formatTime(result.start_time) : '';
+                        const endTime = result.end_time ? formatTime(result.end_time) : '';
+                        doneMsg = `✅ ${message}: ${s.success || 0} 个任务成功，${s.total_articles || 0} 篇`;
+                        if (startTime && endTime) {
+                            doneMsg += ` · 开始于 ${startTime} · 完成于 ${endTime}`;
+                        }
+                    }
+                    showToast(doneMsg, 'success', onClick);
                 } else if (status === 'error') {
-                    showToast('❌ 任务失败: ' + message, 'error');
+                    showToast('❌ 任务失败: ' + message, 'error', onClick);
                 }
             }
 
