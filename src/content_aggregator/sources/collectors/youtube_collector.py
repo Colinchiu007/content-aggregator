@@ -166,7 +166,10 @@ class YouTubeCollector(BaseCollector):
                 transcript = await self._get_transcript(video_id)
                 if transcript:
                     content_text = transcript  # 字幕优先
-                    logger.info(f"[YouTube] 视频 {video_id} 字幕提取成功 ({len(transcript)} 字)")
+                    logger.info(f"[YouTube] ✅ 视频 {video_id} 字幕提取成功 ({len(transcript)} 字)")
+                else:
+                    logger.warning(f"[YouTube] ⚠️ 视频 {video_id} 字幕提取失败（无字幕或网络错误），使用描述作为内容")
+                    logger.warning(f"[YouTube] ⚠️ 内容来源: description (仅 {len(description)} 字)")
 
             results.append({
                 "title": title,
