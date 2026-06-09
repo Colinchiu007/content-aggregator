@@ -150,6 +150,7 @@ class LanguageDetectResult:
 
     def needs_translation(self) -> bool:
         """是否需要翻译成中文"""
+        # 保守策略：unknown 也视为需要翻译（宁可翻译也不要漏掉）
         return self.language not in ("zh", "")
 
     def to_dict(self) -> dict[str, Any]:
@@ -198,7 +199,8 @@ class LanguageDetector:
             LanguageDetectResult: 检测结果
         """
         if not text or len(text.strip()) < 20:
-            return LanguageDetectResult("zh", "中文", "rule", 0.5)
+            # 不再默认中文，返回 unknown 让 needs_translation() 处理
+            return LanguageDetectResult("unknown", "未知", "rule", 0.1)
 
         combined = f"{title}\n{text[:300]}" if title else text[:500]
 
@@ -267,7 +269,8 @@ class LanguageDetector:
             return result
         except Exception as e:
             logger.error(f"[LanguageDetector._llm_detect] LLM 检测失败: {e}")
-            return LanguageDetectResult("zh", "中文", "rule", 0.5)
+            # 不再默认中文，返回 unknown 让 needs_translation() 处理
+            return LanguageDetectResult("unknown", "未知", "rule", 0.1)
 
     async def _call_llm(self, prompt: str) -> str:
         """调用 LLM"""
