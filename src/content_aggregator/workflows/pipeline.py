@@ -893,7 +893,16 @@ class ContentPipeline:
                         contents.append(content)
                     
                     # 过滤和改写由 process_contents 统一处理
-                    articles = await self.process_contents(contents, rewrite=rewrite, progress_callback=progress_callback)
+                    # 计算 process_contents 的进度范围（从 base_progress + step_range // 2 开始，到 base_progress + step_range 结束）
+                    process_base = base_progress + step_range // 2
+                    process_range = step_range // 2
+                    articles = await self.process_contents(
+                        contents,
+                        rewrite=rewrite,
+                        progress_callback=progress_callback,
+                        base_progress=process_base,
+                        progress_range=process_range
+                    )
                     logger.info(f'[process_source] {entry_name}: {len(contents)} contents -> {len(articles)} articles')
                     all_articles.extend(articles)
 
@@ -1009,7 +1018,14 @@ class ContentPipeline:
 
         return []
 
-    async def process_contents(self, contents: list[Content], rewrite: bool = True, progress_callback: Optional[Callable] = None) -> list[Article]:
+    async def process_contents(
+        self,
+        contents: list[Content],
+        rewrite: bool = True,
+        progress_callback: Optional[Callable] = None,
+        base_progress: int = 0,
+        progress_range: int = 100,
+    ) -> list[Article]:
         """
         处理内容列表
 
@@ -1017,6 +1033,8 @@ class ContentPipeline:
             contents: Content 对象列表
             rewrite: 是否进行改写
             progress_callback: 进度回调函数
+            base_progress: 进度基准值（整体进度的起始点，默认 0）
+            progress_range: 进度范围（整体进度的跨度，默认 100）
 
         返回：
             Article 对象列表
@@ -1030,7 +1048,8 @@ class ContentPipeline:
             try:
                 # 报告进度（开始处理当前文章）
                 if progress_callback:
-                    progress = int((current - 1) / total * 100) if total > 0 else 0
+                    # 基于整体进度计算，而不是从 0% 开始
+                    progress = base_progress + int((current - 1) / max(total, 1) * progress_range)
                     await progress_callback(current - 1, total, f"正在改写: {content.title[:30]}", progress)
 
                 # === 过滤步骤 ===
@@ -1088,7 +1107,8 @@ class ContentPipeline:
 
                     # 报告进度（完成当前文章）
                     if progress_callback:
-                        progress = int(current / total * 100) if total > 0 else 100
+                        # 基于整体进度计算，而不是从 0% 开始
+                        progress = base_progress + int(current / max(total, 1) * progress_range)
                         await progress_callback(current, total, f"完成改写: {content.title[:30]}", progress)
 
                 else:

@@ -181,13 +181,22 @@
         function handleTaskUpdate(data) {
             const { task_id, status, message, progress } = data;
 
-            // 显示 Toast 通知
-            if (status === 'running') {
-                showToast(`⏳ 任务开始: ${message}`, 'info');
-            } else if (status === 'done') {
-                showToast(`✅ 任务完成: ${message}`, 'success');
-            } else if (status === 'error') {
-                showToast(`❌ 任务失败: ${message}`, 'error');
+            // 初始化状态跟踪对象（如果不存在）
+            if (!handleTaskUpdate.lastStatus) {
+                handleTaskUpdate.lastStatus = {};
+            }
+
+            // 只在状态变化时显示 Toast（避免进度更新时重复弹出）
+            const lastStatus = handleTaskUpdate.lastStatus[task_id];
+            if (status !== lastStatus) {
+                handleTaskUpdate.lastStatus[task_id] = status;
+                if (status === 'running') {
+                    showToast('⏳ 任务开始: ' + message, 'info');
+                } else if (status === 'done') {
+                    showToast('✅ 任务完成: ' + message, 'success');
+                } else if (status === 'error') {
+                    showToast('❌ 任务失败: ' + message, 'error');
+                }
             }
 
             // 调用所有注册的处理器
