@@ -213,6 +213,9 @@
         const fd = new FormData();
         fd.append('rewrite', 'true');
         fd.append('formats', 'markdown');
+        // ✅ 读取并传递 limit 参数
+        const limitVal = document.getElementById('collect-all-limit').value;
+        if (limitVal) fd.append('limit', limitVal);
         const data = await apiPost('/api/collect/youtube', fd);
         if (data.task_id) {
             showToast('YouTube 采集任务已启动', 'info');
