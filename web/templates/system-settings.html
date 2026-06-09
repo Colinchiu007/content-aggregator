@@ -477,9 +477,6 @@ async function loadModels(type) {
     }
 
 }
-
-
-
 // ========== 渲染模型卡片 ==========
 
 function renderModels(type) {
@@ -644,7 +641,8 @@ async function saveImageKey(id) {
         showToast(' Keys saved', 'success');
     } catch (e) {
         showToast(' ' + e.message, 'error');
-    }
+    }
+}
 
 // ========== 设置默认模型 ==========
 
