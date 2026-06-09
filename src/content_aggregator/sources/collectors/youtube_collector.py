@@ -54,9 +54,45 @@ class YouTubeCollector(BaseCollector):
                 - base_url: API 地址
         """
         super().__init__(**kwargs)
-        self.api_key = api_key
+        # 解密 API Key（支持 enc: 前缀）
+        self.api_key = self._decrypt_key(api_key)
         self.fetch_transcript = fetch_transcript
         self.llm_config = llm_config or {}
+    
+    def _decrypt_key(self, key: str | None) -> str | None:
+        """解密 enc: 前缀的加密 Key"""
+        if not key or not key.startswith('enc:'):
+            return key
+        
+        try:
+            from cryptography.fernet import Fernet
+            import os
+            
+            # 获取加密密钥
+            enc_key = os.environ.get('CONTENT_AGGREGATOR_ENC_KEY')
+            if not enc_key:
+                # 从 config.yaml 读取 encryption_key
+                import yaml
+                config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.yaml')
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        cfg = yaml.safe_load(f)
+                        enc_key = cfg.get('encryption_key')
+                except Exception:
+                    pass
+            
+            if not enc_key:
+                logger.warning('[YouTube] 未找到加密密钥，无法解密 API Key')
+                return None
+            
+            # 解密
+            fernet = Fernet(enc_key.encode())
+            decrypted = fernet.decrypt(key[4:].encode())  # 去掉 'enc:' 前缀
+            return decrypted.decode('utf-8')
+            
+        except Exception as e:
+            logger.error(f'[YouTube] API Key 解密失败: {e}')
+            return None
 
     async def collect(self, **kwargs) -> SourceResult:
         """Implement BaseCollector.collect, map max_items to max_results"""
@@ -100,6 +136,48 @@ class YouTubeCollector(BaseCollector):
 
         if not channel_id and not playlist_id and not search_query:
             raise ValueError("YouTube 采集器需要 channel_id、playlist_id 或 search_query 参数")
+        
+        # 解析 channel_id（支持完整 URL）
+        if channel_id and channel_id.startswith('http'):
+            import re as _re
+            # 尝试提取 UC... 格式 ID
+            uc = _re.search(r'UC[\w-]{22}', channel_id)
+            if uc:
+                channel_id = uc.group()
+            else:
+                # 提取用户名（/c/Username 或 /user/Username）
+                handle = _re.search(r'/(?:c|user)/([^/]+)', channel_id)
+                if handle:
+                    username = handle.group(1)
+                    # 调用 API 获取真实 channel ID
+                    try:
+                        client = await self._get_client()
+                        resp = await client.get(
+                            'https://www.googleapis.com/youtube/v3/channels',
+                            params={'part': 'id', 'forUsername': username, 'key': self.api_key}
+                        )
+                        resp.raise_for_status()
+                        ch_data = resp.json()
+                        if ch_data.get('items'):
+                            channel_id = ch_data['items'][0]['id']
+                            logger.info(f'[YouTube] 用户名 {username} → 频道 ID: {channel_id}')
+                        else:
+                            logger.warning(f'[YouTube] 未找到用户名对应的频道: {username}')
+                            raise ValueError(f'Invalid channel: {channel_id}')
+                    except Exception as e:
+                        logger.error(f'[YouTube] 解析频道 URL 失败: {e}')
+                        raise ValueError(f'Cannot resolve channel URL: {channel_id}')
+                else:
+                    # 尝试 @handle 格式
+                    handle = _re.search(r'@([\w-]+)', channel_id)
+                    if handle:
+                        # YouTube API 不支持直接通过 @handle 查询，需要搜索
+                        logger.warning(f'[YouTube] @handle 格式需要搜索: {handle.group(1)}')
+                        # 改为搜索模式
+                        search_query = handle.group(1)
+                        channel_id = None
+                    else:
+                        raise ValueError(f'Cannot parse channel URL: {channel_id}')
 
         # 构建 API URL
         if search_query:
