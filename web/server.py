@@ -27,6 +27,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+# 将父目录添加到 sys.path，使 `import web.xxx` 可用
+PARENT_DIR = Path(__file__).parent.parent
+sys.path.insert(0, str(PARENT_DIR))
+
 from fastapi import FastAPI, Request, Form, Query, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -1095,7 +1099,7 @@ async def api_collect_url(
                                         message=msg,
                                         result={"count": added, "total": len(articles), "article_ids": [a.id for a in articles[:added]]})
                     await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                        "status": "done", "message": f"✅ 采集 {len(articles)} 篇"})
+                                        "status": "done", "message": f"成功 采集 {len(articles)} 篇"})
                 else:
                     task_manager.update(task_id, status="error", message="采集失败：无内容")
                     await broadcast_ws({"type": "task_update", "task_id": task_id,
@@ -1247,10 +1251,10 @@ async def api_collect_link(
             article_store.add(article_data)
 
             task_manager.update(task_id, status="done", progress=100,
-                              message=f"✅ 采集成功: {result.get('title', '')[:30]}",
+                              message=f"采集成功: {result.get('title', '')[:30]}",
                               result={"article_id": article_data["id"], "platform": platform})
             await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "done", "progress": 100, "message": "✅ 采集成功"})
+                                "status": "done", "progress": 100, "message": "采集成功"})
 
         except Exception as e:
             error_msg = f"采集失败: {e}"
@@ -1563,7 +1567,7 @@ async def api_compose(
             task_manager.update(task_id, status="done", progress=100,
                                 message=f"处理完成: {current_title}", result={"path": str(path), "article_id": aid})
             await broadcast_ws({"type": "task_update", "task_id": task_id,
-                                "status": "done", "message": f"✅ 处理完成", "article_id": aid})
+                                "status": "done", "message": f"处理完成", "article_id": aid})
 
         except Exception as e:
             task_manager.update(task_id, status="error", message=f"处理失败: {e}")
