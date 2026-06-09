@@ -119,6 +119,9 @@ def decode_token(token: str) -> dict | None:
     """解码 JWT Token"""
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        # 兼容旧 token：sub 可能是整数，转为字符串
+        if "sub" in payload and isinstance(payload["sub"], int):
+            payload["sub"] = str(payload["sub"])
         return payload
     except jwt.ExpiredSignatureError:
         print(f"[DECODE_TOKEN] Token 已过期: {token[:30]}...")
