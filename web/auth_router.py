@@ -105,8 +105,9 @@ def hash_password(password: str) -> str:
 
 def create_token(user_id: str, username: str, expires_days: int = ACCESS_TOKEN_EXPIRE_DAYS) -> str:
     """创建 JWT Token"""
+    # 强制 sub 为字符串（JWT 标准要求）
     payload = {
-        "sub": user_id,
+        "sub": str(user_id),
         "username": username,
         "exp": datetime.utcnow() + timedelta(days=expires_days),
         "iat": datetime.utcnow(),
