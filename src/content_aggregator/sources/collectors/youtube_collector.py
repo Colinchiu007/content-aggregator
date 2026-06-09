@@ -213,9 +213,9 @@ class YouTubeCollector(BaseCollector):
                 if transcript:
                     # 兼容：seg 可能是对象（.text）或字典（['text']）
                     try:
-                        text = " ".join([seg.text for seg in transcript])
+                        text = "\n".join([seg.text for seg in transcript])
                     except AttributeError:
-                        text = " ".join([seg['text'] for seg in transcript])
+                        text = "\n".join([seg['text'] for seg in transcript])
                     if text.strip():
                         logger.info(f"[YouTube] 视频 {video_id} 字幕提取成功 ({len(text)} 字)")
                         return text.strip()
@@ -227,9 +227,9 @@ class YouTubeCollector(BaseCollector):
                 transcript = api_class().fetch(video_id)  # 不指定语言，获取默认字幕
                 if transcript:
                     try:
-                        text = " ".join([seg.text for seg in transcript])
+                        text = "\n".join([seg.text for seg in transcript])
                     except AttributeError:
-                        text = " ".join([seg['text'] for seg in transcript])
+                        text = "\n".join([seg['text'] for seg in transcript])
                     if text.strip():
                         logger.info(f"[YouTube] 视频 {video_id} 字幕提取成功（任意语言）({len(text)} 字)")
                         return text.strip()
@@ -247,9 +247,9 @@ class YouTubeCollector(BaseCollector):
                         fetched = transcript_obj.fetch()
                         # 兼容：seg 可能是对象或字典
                         try:
-                            text = " ".join([seg.text for seg in fetched])
+                            text = "\n".join([seg.text for seg in fetched])
                         except AttributeError:
-                            text = " ".join([seg['text'] for seg in fetched])
+                            text = "\n".join([seg['text'] for seg in fetched])
                         if text.strip():
                             logger.info(f"[YouTube] 视频 {video_id} 手动字幕提取成功 lang={lang} ({len(text)} 字)")
                             return text.strip()
@@ -262,9 +262,9 @@ class YouTubeCollector(BaseCollector):
                     fetched = transcript_obj.fetch()
                     # 兼容：seg 可能是对象或字典
                     try:
-                        text = " ".join([seg.text for seg in fetched])
+                        text = "\n".join([seg.text for seg in fetched])
                     except AttributeError:
-                        text = " ".join([seg['text'] for seg in fetched])
+                        text = "\n".join([seg['text'] for seg in fetched])
                     if text.strip():
                         logger.info(f"[YouTube] 视频 {video_id} 自动字幕提取成功 ({len(text)} 字)")
                         return text.strip()
