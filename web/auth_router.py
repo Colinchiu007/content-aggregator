@@ -360,8 +360,11 @@ async def forgot_password(req: ForgotPasswordRequest):
         username = row["username"]
         reset_token = create_token(user_id, username, expires_days=1)  # 1小时有效
         
-        # 构建重置链接
-        reset_link = f"http://127.0.0.1:8080/api/auth/reset-password?token={reset_token}"
+        # 构建重置链接（指向 HTML 页面，不是 API 端点）
+        # 动态读取端口（从环境变量 PORT，默认 8080）
+        import os as _os
+        _port = _os.environ.get('PORT', '8080')
+        reset_link = f"http://127.0.0.1:{_port}/api/auth/reset-password?token={reset_token}"
         
         print(f"[FORGOT] Reset link generated for {req.email}")
         
