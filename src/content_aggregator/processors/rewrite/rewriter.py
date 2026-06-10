@@ -281,6 +281,35 @@ class RewriteProcessor:
             usage = llm_response.get("usage", {})
 
             result = self._parse_response(response_text, content, rewrite_config, usage)
+
+            # ⚠️ 自动重试：如果检测到推理输出，用强制提示词重新调用
+            _RETRY_ERRORS = ("推理内容", "分析提纲", "模型返回了")
+            if not result.success and any(e in (result.error or "") for e in _RETRY_ERRORS):
+                logger.warning(f"[RewriteProcessor.rewrite] 检测到推理输出，自动重试（强制提示词）...")
+                if progress_callback:
+                    await progress_callback(0, 1, "检测到推理输出，自动重试...", 65)
+                # 用极度简短的强制提示词重试
+                _force_prompt = (
+                    f"直接改写以下文章为中文文章，不要任何分析、提纲或思考过程。"
+                    f"第一个字必须是中文标题。\n\n"
+                    f"标题：{content.title}\n\n"
+                    f"正文：{content.content[:5000]}\n\n"
+                    f"要求：{rewrite_config.min_word_count}-{rewrite_config.max_word_count}字，"
+                    f"目标{rewrite_config.target_word_count}字。先写【标题】再写正文。"
+                )
+                llm_response2 = await self.llm_client.call(_force_prompt)
+                response_text2 = llm_response2["content"]
+                usage2 = llm_response2.get("usage", {})
+                # 合并 token 用量
+                if usage2:
+                    for k, v in usage2.items():
+                        usage[k] = usage.get(k, 0) + v
+                result = self._parse_response(response_text2, content, rewrite_config, usage)
+                if result.success:
+                    logger.info(f"[RewriteProcessor.rewrite] 自动重试成功")
+                else:
+                    logger.warning(f"[RewriteProcessor.rewrite] 自动重试仍失败: {result.error}")
+
             result.duration = time.time() - start_time
             logger.info(f"[RewriteProcessor.rewrite] SUCCESS: {content.title[:60]} -> {len(result.rewritten_content)} chars")
 
