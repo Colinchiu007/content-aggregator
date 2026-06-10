@@ -203,17 +203,28 @@ class YouTubeSource(BaseSource):
         return results
 
     async def _search_videos(self, query: str, max_results: int) -> list[dict]:
-        """根据关键词搜索视频（使用 YouTube Data API v3）"""
+        """根据关键词搜索视频（使用 YouTube Data API v3），并去重"""
         client = await self._get_client()
 
-        # 搜索视频
+        # 1. 加载历史记录（已采集的视频 ID）
+        history_file = "data/youtube_history.json"
+        collected_ids = set()
+        try:
+            import json
+            with open(history_file, "r", encoding="utf-8") as f:
+                history = json.load(f)
+                collected_ids = set(history.get("collected_video_ids", []))
+        except Exception:
+            collected_ids = set()
+
+        # 2. 搜索视频（按播放量排序）
         resp = await client.get(
             f"{self.BASE_URL}/search",
             params={
                 "part": "snippet",
                 "q": query,
-                "maxResults": max_results,
-                "order": self.search_order,  # 使用配置的排序方式
+                "maxResults": max_results * 2,  # 多请求一些，过滤后可能不够
+                "order": self.search_order,  # 使用配置的排序方式（viewCount）
                 "type": "video",
                 "key": self.api_key,
             }
@@ -225,8 +236,30 @@ class YouTubeSource(BaseSource):
         if not video_items:
             return []
 
-        # 批量获取视频详情（duration + viewCount）
-        video_ids = [item["id"]["videoId"] for item in video_items]
+        # 3. 过滤掉已采集的视频
+        new_items = []
+        for item in video_items:
+            video_id = item["id"]["videoId"]
+            if video_id not in collected_ids:
+                new_items.append(item)
+                if len(new_items) >= max_results:  # 只保留需要的数量
+                    break
+
+        if not new_items:
+            logger.warning(f"搜索关键词 '{query}' 的所有结果都已采集过，清空历史记录后重试")
+            # 清空历史记录，重新采集
+            collected_ids = set()
+            new_items = video_items[:max_results]
+            # 更新历史文件（清空）
+            try:
+                import json
+                with open(history_file, "w", encoding="utf-8") as f:
+                    json.dump({"collected_video_ids": [], "last_collect_time": None}, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                logger.error(f"清空历史记录失败: {e}")
+
+        # 4. 批量获取视频详情（duration + viewCount）
+        video_ids = [item["id"]["videoId"] for item in new_items]
         resp = await client.get(
             f"{self.BASE_URL}/videos",
             params={
@@ -238,11 +271,12 @@ class YouTubeSource(BaseSource):
         resp.raise_for_status()
         details_data = resp.json()
 
-        # 合并搜索结果和详情
+        # 5. 合并搜索结果和详情
         details_map = {item["id"]: item for item in details_data.get("items", [])}
 
         results = []
-        for item in video_items:
+        new_collected_ids = []
+        for item in new_items:
             video_id = item["id"]["videoId"]
             details = details_map.get(video_id, {})
             results.append({
@@ -258,6 +292,21 @@ class YouTubeSource(BaseSource):
                 "view_count": details.get("statistics", {}).get("viewCount", ""),
                 "details": details.get("snippet", {}),
             })
+            new_collected_ids.append(video_id)
+
+        # 6. 更新历史记录
+        try:
+            import json
+            collected_ids.update(new_collected_ids)
+            with open(history_file, "w", encoding="utf-8") as f:
+                json.dump({
+                    "collected_video_ids": list(collected_ids),
+                    "last_collect_time": datetime.now(timezone.utc).isoformat()
+                }, f, ensure_ascii=False, indent=2)
+            logger.info(f"已更新 YouTube 历史记录：新增 {len(new_collected_ids)} 个视频 ID")
+        except Exception as e:
+            logger.error(f"更新历史记录失败: {e}")
+
         return results
 
     async def _fetch_transcript(self, video_id: str) -> str:
