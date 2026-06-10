@@ -1544,6 +1544,8 @@ async def api_compose(
     format_type: str = Form(default="markdown"),
     strategy: str = Form(default="REWRITE"),
     translate: str = Form(default="no"),
+    word_count_min: int = Form(default=0),
+    word_count_max: int = Form(default=0),
 ):
     """手动输入内容 → 改写/导出（需要登录）"""
     user = await require_auth(request)
@@ -1559,6 +1561,17 @@ async def api_compose(
             rewritten_content = content
             current_title = title  # avoid UnboundLocalError from assignment in rewrite branch
             if action == "rewrite":
+                # 进度回调：改写器会多次调用，报告中间进度
+                async def progress_callback(completed, total, message, progress):
+                    task_manager.update(task_id, status="running", message=message, progress=progress)
+                    await broadcast_ws({
+                        "type": "task_update",
+                        "task_id": task_id,
+                        "status": "running",
+                        "message": message,
+                        "progress": progress
+                    })
+
                 async with RewriteProcessor(CONFIG) as processor:
                     c = Content(
                         id=str(__import__("uuid").uuid4()),
@@ -1577,8 +1590,10 @@ async def api_compose(
                     cfg = RewriteConfig(
                         strategy=strategy_map.get(strategy, RewriteStrategy.REWRITE),
                         translate_to="zh" if translate == "yes" else None,
+                        min_word_count=word_count_min if word_count_min > 0 else 300,
+                        max_word_count=word_count_max if word_count_max > 0 else 3000,
                     )
-                    result = await processor.rewrite(c, cfg)
+                    result = await processor.rewrite(c, cfg, progress_callback=progress_callback)
                     if result.success:
                         rewritten_content = result.rewritten_content
                         current_title = result.title or title

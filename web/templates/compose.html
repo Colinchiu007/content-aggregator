@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% set active_page = 'compose' %}
-{% block title %}手动输入 - Content Aggregator{% endblock %}
+{% block title %}单篇改写 - Content Aggregator{% endblock %}
 
 {% block content %}
 <div class="page-header">
-    <h1>✏️ 手动输入</h1>
+    <h1>✏️ 单篇改写</h1>
 </div>
 
 <div class="card card-compose">
@@ -61,6 +61,20 @@
                     <input type="checkbox" id="compose-translate" name="translate" value="yes">
                     <label for="compose-translate">英文先翻译成中文</label>
                 </div>
+            </div>
+
+            <!-- 字数控制 -->
+            <div class="compose-form-col">
+                <label class="form-label">
+                    字数控制（可选）
+                    <span class="form-label-hint">不填则不限制</span>
+                </label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <input type="number" class="form-input" name="word_count_min" id="word-count-min" placeholder="最小" min="1" style="width:80px;">
+                    <span style="color:#999;">-</span>
+                    <input type="number" class="form-input" name="word_count_max" id="word-count-max" placeholder="最大" min="1" style="width:80px;">
+                </div>
+                <div style="font-size:11px;color:#999;margin-top:4px;">中文按字符数，英文按字符数</div>
             </div>
 
             <!-- 导出格式 -->
@@ -242,6 +256,13 @@
                 showToast(task.message, 'error');
                 return;
             } else {
+                // 改进度条（轮询兜底）
+                if (task.progress !== undefined) {
+                    const bar = el.querySelectorAll('.task-progress-bar');
+                    const txt = el.querySelectorAll('.task-progress-text');
+                    if (bar.length) bar[0].style.width = task.progress + '%';
+                    if (txt.length) txt[0].textContent = task.progress + '%';
+                }
                 el.querySelector('span:last-child').textContent = task.message || '处理中...';
                 setTimeout(poll, 2000);
             }
