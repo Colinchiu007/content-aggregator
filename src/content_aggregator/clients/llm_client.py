@@ -215,7 +215,10 @@ class LLMClient:
                     # 兼容不同模型返回格式：
                     # - 普通模型：message.content
                     # - 推理模型（如 sensenova-6.7-flash-lite）：message.reasoning 或 message.reasoning_content
-                    content = message.get("content") or message.get("reasoning") or message.get("reasoning_content", "")
+                    # ⚠️ 优先使用 content；只有 content 为 None 时才 fallback 到 reasoning
+                    content = message.get("content")
+                    if content is None:
+                        content = message.get("reasoning") or message.get("reasoning_content", "")
                     usage = result.get("usage", {})
                     
                     logger.info(f"[_call_openai_compatible] SUCCESS: got {len(content)} chars, usage={usage}")

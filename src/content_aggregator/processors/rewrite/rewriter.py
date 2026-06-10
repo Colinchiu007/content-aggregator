@@ -88,8 +88,17 @@ class RewriteProcessor:
         3. SYSTEM_PROMPTS(内置默认值)
     """
 
+    # ⚠️ 强制禁止推理输出（防御 LLM 输出 Chain-of-Thought）
+    NO_REASONING = (
+        "⚠️ 绝对禁止输出任何推理过程、分析步骤、或思考链"
+        "（如'1. 分析问题', '首先', 'Identify the issue'等）。\n"
+        "⚠️ 严禁在输出中包含任何 Chain-of-Thought、Reasoning、或内部分析。\n"
+        "✅ 只输出最终改写结果，不要任何解释、前缀、或后缀。\n"
+        "\n"
+    )
+
     DEFAULT_PROMPTS = {
-        RewriteStrategy.SUMMARIZE: """你是一个专业的文章摘要助手。请根据提供的文章内容,提取核心要点,生成简洁准确的摘要。
+        RewriteStrategy.SUMMARIZE: NO_REASONING + """你是一个专业的文章摘要助手。请根据提供的文章内容,提取核心要点,生成简洁准确的摘要。
 直接输出结果,不要任何寒暄或前缀。
 要求:
 1. 保留关键信息和核心观点
@@ -97,7 +106,7 @@ class RewriteProcessor:
 3. 长度控制在200-500字
 4. 使用中文输出""",
 
-        RewriteStrategy.STYLE_TRANSFER: """你是一个专业的文案风格转换助手。请将文章内容转换为指定的风格。
+        RewriteStrategy.STYLE_TRANSFER: NO_REASONING + """你是一个专业的文案风格转换助手。请将文章内容转换为指定的风格。
 直接输出结果,不要任何寒暄或前缀。
 要求:
 1. 保持原文的核心信息和观点
@@ -105,7 +114,7 @@ class RewriteProcessor:
 3. 语言流畅自然
 4. 使用中文输出""",
 
-        RewriteStrategy.PARAPHRASE: """你是一个专业的伪原创助手。请在不改变原文核心意思的前提下,对文章进行改写,使其具有原创性。
+        RewriteStrategy.PARAPHRASE: NO_REASONING + """你是一个专业的伪原创助手。请在不改变原文核心意思的前提下,对文章进行改写,使其具有原创性。
 同时改写标题,在正文前用【标题】标记改写后的标题。
 直接输出结果,不要任何寒暄或前缀。
 要求:
@@ -114,7 +123,7 @@ class RewriteProcessor:
 3. 替换同义词和近义词
 4. 使用中文输出""",
 
-        RewriteStrategy.REWRITE: """你是一个专业的文章改写助手。请对原文进行深度改写,重新组织结构和表达方式。
+        RewriteStrategy.REWRITE: NO_REASONING + """你是一个专业的文章改写助手。请对原文进行深度改写,重新组织结构和表达方式。
 要求:
 1. 保持原文的核心信息和主要观点
 2. 重新组织文章结构和段落
@@ -124,7 +133,7 @@ class RewriteProcessor:
 6. 同时改写标题,在正文前用【标题】标记改写后的标题
 7. 直接输出改写结果,不要任何寒暄、解释或前缀(如"好的,这是为您改写后的文章"等)""",
 
-        RewriteStrategy.EXPAND: """你是一个专业的内容扩展助手。请在原文基础上添加更多背景、案例、数据等信息,生成更丰富的内容。
+        RewriteStrategy.EXPAND: NO_REASONING + """你是一个专业的内容扩展助手。请在原文基础上添加更多背景、案例、数据等信息,生成更丰富的内容。
 要求:
 1. 保持原文的核心主题和观点
 2. 添加相关的背景信息和行业数据
@@ -134,7 +143,7 @@ class RewriteProcessor:
 6. 同时改写标题,在正文前用【标题】标记改写后的标题
 7. 直接输出结果,不要任何寒暄、解释或前缀""",
 
-        RewriteStrategy.SHORT_VIDEO: """根据下面要求改写:
+        RewriteStrategy.SHORT_VIDEO: NO_REASONING + """根据下面要求改写:
 你是一名专业的短视频文案仿写专家,具备以下核心能力:
 - 精准识别爆款短视频文案的选题角度和内容结构
 - 保持40%-50%内容相似度的改写技巧
@@ -230,6 +239,17 @@ class RewriteProcessor:
 
         start_time = time.time()
         logger.info(f"[RewriteProcessor.rewrite] START: {content.title[:60]}")
+
+        # ⚠️ 输入校验：防止短文本触发异常推理
+        _raw = (content.content or "").strip()
+        if len(_raw) < 50:
+            _msg = f"输入内容过短（仅 {len(_raw)} 字符），请提供至少 50 字的完整文章"
+            logger.warning(f"[RewriteProcessor.rewrite] INPUT_TOO_SHORT: len={len(_raw)}, title={content.title[:60]}")
+            return RewriteResult(
+                success=False,
+                original_content=content,
+                error=_msg,
+            )
 
         try:
             # 报告进度:开始构建提示词
