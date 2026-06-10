@@ -628,7 +628,7 @@ async def broadcast_ws(message: dict):
 # ========================================================================
 
 @app.get("/", response_class=HTMLResponse)
-async def page_index(request: Request):
+async def page_index(req: Request):
     """仪表盘"""
     sources_stats = article_store.get_sources()
     recent = article_store.get_all(page=1, per_page=10)
@@ -708,7 +708,7 @@ async def page_index(request: Request):
         pg += 1
 
     return render_template("index.html", {
-        "request": request,
+        "request": req,
         "sources_stats": sources_stats,
         "recent_articles": recent["items"][:5],
         "total_articles": total_articles,
