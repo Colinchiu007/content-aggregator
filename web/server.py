@@ -1,4 +1,4 @@
-"""
+﻿"""
 Content Aggregator - Web 管理界面
 
 FastAPI + Jinja2，提供可视化操作界面。
@@ -628,7 +628,7 @@ async def broadcast_ws(message: dict):
 # ========================================================================
 
 @app.get("/", response_class=HTMLResponse)
-async def page_index(req: Request):
+async def page_index():
     """仪表盘"""
     sources_stats = article_store.get_sources()
     recent = article_store.get_all(page=1, per_page=10)
@@ -708,7 +708,7 @@ async def page_index(req: Request):
         pg += 1
 
     return render_template("index.html", {
-        "request": req,
+        # "request": req  # 已移除 Request 参数,
         "sources_stats": sources_stats,
         "recent_articles": recent["items"][:5],
         "total_articles": total_articles,
@@ -724,12 +724,12 @@ async def page_index(req: Request):
 
 
 @app.get("/articles", response_class=HTMLResponse)
-async def page_articles(request: Request, page: int = 1, source: str | None = None):
+async def page_articles(req: Request, page: int = 1, source: str | None = None):
     """文章列表"""
     result = article_store.get_all(page=page, per_page=20, source=source)
     sources = article_store.get_sources()
     return render_template("articles.html", {
-        "request": request,
+        # "request": req  # 已移除 Request 参数,
         "articles": result,
         "sources": sources,
         "current_source": source,
@@ -737,65 +737,65 @@ async def page_articles(request: Request, page: int = 1, source: str | None = No
 
 
 @app.get("/articles/{article_id}", response_class=HTMLResponse)
-async def page_article_detail(request: Request, article_id: str):
+async def page_article_detail(req: Request, article_id: str):
     """文章详情"""
     article = article_store.get_by_id(article_id)
     if not article:
         raise HTTPException(status_code=404, detail="文章不存在")
     return render_template("article_detail.html", {
-        "request": request,
+        # "request": req  # 已移除 Request 参数,
         "article": article,
     })
 
 
 @app.get("/sources", response_class=HTMLResponse)
-async def page_sources(request: Request):
+async def page_sources():
     """数据源管理"""
     sources_config = CONFIG.get("sources", {})
     return render_template("sources.html", {
-        "request": request,
+        # "request": req  # 已移除 Request 参数,
         "sources_config": sources_config,
     })
 
 
 @app.get("/settings", response_class=HTMLResponse)
-async def page_settings(request: Request):
+async def page_settings():
     """数据源配置（扩展平台）"""
     sources_config = CONFIG.get("sources", {})
     return render_template("settings.html", {
-        "request": request,
+        # "request": req  # 已移除 Request 参数,
         "config": {"sources": sources_config},
     })
 
 
 @app.get("/compose", response_class=HTMLResponse)
-async def page_compose(request: Request):
+async def page_compose():
     """手动输入 → 改写 → 导出"""
     return render_template("compose.html", {
-        "request": request,
+        # "request": req  # 已移除 Request 参数,
     })
 
 
 @app.get("/collect-link", response_class=HTMLResponse)
-async def page_collect_link(request: Request):
+async def page_collect_link():
     """链接采集页面"""
     return render_template("collect-link.html", {
-        "request": request,
+        # "request": req  # 已移除 Request 参数,
     })
 
 
 @app.get("/tasks", response_class=HTMLResponse)
-async def page_tasks(request: Request):
+async def page_tasks():
     """任务列表"""
     tasks = task_manager.get_all()
     return render_template("tasks.html", {
-        "request": request,
+        # "request": req  # 已移除 Request 参数,
         "tasks": reversed(tasks),
     })
 
 
 @app.get("/system-settings", response_class=HTMLResponse)
-async def page_system_settings(request: Request):
+async def page_system_settings():
     """模型API设置（LLM、ASR、图片生成、Cookie）"""
     config = _migrate_config_models(load_config())
     # 确保所有配置section都有默认值，避免Jinja2模板报错
@@ -803,13 +803,13 @@ async def page_system_settings(request: Request):
         if key not in config:
             config[key] = {}
     return render_template("system-settings.html", {
-        "request": request,
+        # "request": req  # 已移除 Request 参数,
         "config": config,
     })
 
 
 @app.get("/wechat-settings", response_class=HTMLResponse)
-async def page_wechat_settings(request: Request):
+async def page_wechat_settings():
     """微信发布设置页面"""
     from wechat_publisher.theme import list_themes, load_theme
     cfg_path = os.path.join(os.path.dirname(__file__), "..", "config", "wechat_publish.json")
@@ -827,7 +827,7 @@ async def page_wechat_settings(request: Request):
         except:
             themes.append({"name": name, "display_name": name, "description": ""})
     return render_template("wechat_settings.html", {
-        "request": request,
+        # "request": req  # 已移除 Request 参数,
         "config": cfg,
         "themes": themes,
     })
@@ -1511,7 +1511,7 @@ async def api_delete_strategy(strategy_id: str, request: Request):
 async def page_rewrite_strategies(request: Request):
     """\u7b56\u7565\u7ba1\u7406\u9875\u9762"""
     return render_template("rewrite-strategies.html", {
-        "request": request,
+        # "request": req  # 已移除 Request 参数,
     })
 
 
@@ -2648,22 +2648,24 @@ async def api_set_default_model(model_type: str, model_id: str, request: Request
 @app.get("/login", response_class=HTMLResponse)
 async def page_login(request: Request):
     """登录页面"""
-    return render_template("login.html", {"request": request})
+    return render_template("login.html", {# "request": req  # 已移除 Request 参数})
 
 
 @app.get("/register", response_class=HTMLResponse)
 async def page_register(request: Request):
     """注册页面"""
-    return render_template("register.html", {"request": request})
+    return render_template("register.html", {# "request": req  # 已移除 Request 参数})
 
 
 @app.get("/auth/forgot", response_class=HTMLResponse)
 async def page_forgot_password(request: Request):
     """忘记密码页面"""
-    return render_template("forgot_password.html", {"request": request})
+    return render_template("forgot_password.html", {# "request": req  # 已移除 Request 参数})
 
 
 @app.get("/auth/reset", response_class=HTMLResponse)
 async def page_reset_password(request: Request, token: str = ""):
     """重置密码页面（token 从 URL 参数获取）"""
-    return render_template("reset_password.html", {"request": request, "token": token})
+    return render_template("reset_password.html", {# "request": req  # 已移除 Request 参数, "token": token})
+
+
