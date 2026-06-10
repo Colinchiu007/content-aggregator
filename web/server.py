@@ -1037,12 +1037,15 @@ async def api_collect_youtube(
 
     async def run_task():
         # YouTube 采集的进度回调（单源，进度 0-100）
-        # 节流：避免 WebSocket 消息风暴
-        _last_progress = [0]  # 用 list 包裹以便闭包修改
-        _last_message = [""]
+        # 节流：500ms 内最多广播 1 次，避免前端卡死
+        _last_broadcast = [0.0]  # 上次广播时间（time.time()）
+        _last_progress = [0]   # 上次广播的进度
+        _last_message = [""]    # 上次广播的消息
         async def progress_callback(current, total, message, progress):
-            # 只有进度变化 >= 5% 或 message 变化时才广播
-            if progress - _last_progress[0] >= 5 or message != _last_message[0]:
+            now = __import__('time').time()
+            # 条件：距离上次广播 >= 500ms，或进度 0/100，或消息变化
+            if (now - _last_broadcast[0] >= 0.5) or progress in (0, 100) or message != _last_message[0]:
+                _last_broadcast[0] = now
                 _last_progress[0] = progress
                 _last_message[0] = message
                 task_manager.update(task_id, status="running", progress=progress, message=message)
