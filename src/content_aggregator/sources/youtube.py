@@ -43,6 +43,9 @@ class YouTubeSource(BaseSource):
         super().__init__(config)
         self.api_key = config.config.get("api_key", "")
         self.channels = config.config.get("channels", [])
+        self.search_queries = config.config.get("search_queries", [])  # 新增：搜索关键词列表
+        self.search_limit = config.config.get("search_limit", 5)  # 新增：每次搜索返回的视频数
+        self.search_order = config.config.get("search_order", "date")  # 新增：搜索排序（date/viewCount/rating）
         self.fetch_transcripts = config.config.get("fetch_transcripts", False)
         self.proxy = proxy
         self._client: httpx.AsyncClient | None = None
@@ -78,19 +81,20 @@ class YouTubeSource(BaseSource):
 
     async def collect(self, filters: dict[str, Any] | None = None) -> dict:
         """
-        采集配置的频道的最新视频。
+        采集配置的频道或搜索关键词的最新视频。
         返回 {success, contents: list[Content], errors: list}
         """
         if not self.api_key:
             return {"success": False, "error": "YouTube API key not configured", "contents": []}
 
-        if not self.channels:
-            return {"success": False, "error": "No YouTube channels configured", "contents": []}
+        if not self.channels and not self.search_queries:
+            return {"success": False, "error": "No YouTube channels or search queries configured", "contents": []}
 
         all_contents = []
         errors = []
         limit = (filters or {}).get("limit")
 
+        # 1. 从配置的频道采集
         for ch in self.channels:
             channel_id = ch.get("channel_id", "")
             channel_name = ch.get("name", channel_id)
@@ -109,6 +113,21 @@ class YouTubeSource(BaseSource):
                 err_msg = f"频道 {channel_name} 采集失败: {e}"
                 errors.append(err_msg)
                 logger.error(err_msg)
+
+        # 2. 从搜索关键词采集（新增）
+        if self.search_queries:
+            search_limit = limit or self.search_limit
+            for query in self.search_queries:
+                try:
+                    videos = await self._search_videos(query, search_limit)
+                    for video in videos:
+                        content = self._video_to_content(video, f"搜索:{query}")
+                        if content:
+                            all_contents.append(content)
+                except Exception as e:
+                    err_msg = f"搜索关键词 '{query}' 采集失败: {e}"
+                    errors.append(err_msg)
+                    logger.error(err_msg)
 
         return {
             "success": len(errors) == 0,
@@ -175,6 +194,64 @@ class YouTubeSource(BaseSource):
                 "published_at": item["snippet"]["publishedAt"],
                 "channel_title": channel_title,
                 "channel_id": channel_id,
+                "url": f"https://www.youtube.com/watch?v={video_id}",
+                "thumbnail": item["snippet"]["thumbnails"]["high"]["url"] if item["snippet"].get("thumbnails") else "",
+                "duration": details.get("contentDetails", {}).get("duration", ""),
+                "view_count": details.get("statistics", {}).get("viewCount", ""),
+                "details": details.get("snippet", {}),
+            })
+        return results
+
+    async def _search_videos(self, query: str, max_results: int) -> list[dict]:
+        """根据关键词搜索视频（使用 YouTube Data API v3）"""
+        client = await self._get_client()
+
+        # 搜索视频
+        resp = await client.get(
+            f"{self.BASE_URL}/search",
+            params={
+                "part": "snippet",
+                "q": query,
+                "maxResults": max_results,
+                "order": self.search_order,  # 使用配置的排序方式
+                "type": "video",
+                "key": self.api_key,
+            }
+        )
+        resp.raise_for_status()
+        search_data = resp.json()
+        video_items = search_data.get("items", [])
+
+        if not video_items:
+            return []
+
+        # 批量获取视频详情（duration + viewCount）
+        video_ids = [item["id"]["videoId"] for item in video_items]
+        resp = await client.get(
+            f"{self.BASE_URL}/videos",
+            params={
+                "part": "snippet,contentDetails,statistics",
+                "id": ",".join(video_ids),
+                "key": self.api_key,
+            }
+        )
+        resp.raise_for_status()
+        details_data = resp.json()
+
+        # 合并搜索结果和详情
+        details_map = {item["id"]: item for item in details_data.get("items", [])}
+
+        results = []
+        for item in video_items:
+            video_id = item["id"]["videoId"]
+            details = details_map.get(video_id, {})
+            results.append({
+                "id": video_id,
+                "title": item["snippet"]["title"],
+                "description": item["snippet"].get("description", ""),
+                "published_at": item["snippet"]["publishedAt"],
+                "channel_title": item["snippet"]["channelTitle"],
+                "channel_id": item["snippet"]["channelId"],
                 "url": f"https://www.youtube.com/watch?v={video_id}",
                 "thumbnail": item["snippet"]["thumbnails"]["high"]["url"] if item["snippet"].get("thumbnails") else "",
                 "duration": details.get("contentDetails", {}).get("duration", ""),
