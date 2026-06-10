@@ -203,17 +203,32 @@ async function toggleHotSource(type) {
 }
 
 async function collectHotSource(type) {
-    const fd = new FormData();
-    fd.append('rewrite', 'false');
-    fd.append('formats', 'markdown');
-    const resp = await fetch(`/api/collect/${type}`, authOptions({ method: 'POST', body: fd }));
-    if (resp.status === 401) { window.location.href = '/login'; return; }
-    const data = await resp.json();
-    if (data.status === 'started') {
-        showToast('采集任务已启动，请前往「采集任务」页面查看进度', 'success');
-        setTimeout(() => location.href = '/tasks', 800);
-    } else {
-        showToast(data.error || '启动失败', 'error');
+    // 找到点击的按钮并显示 loading 状态
+    const btn = event && event.currentTarget ? event.currentTarget : null;
+    if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.textContent = '采集中...'; }
+    try {
+        const fd = new FormData();
+        fd.append('rewrite', 'false');
+        fd.append('formats', 'markdown');
+        const resp = await fetch(`/api/collect/${type}`, authOptions({ method: 'POST', body: fd }));
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            showToast('请求失败 (' + resp.status + '): ' + (text || resp.statusText), 'error');
+            return;
+        }
+        const data = await resp.json();
+        if (data.status === 'started') {
+            showToast('采集任务已启动，请前往「采集任务」页面查看进度', 'success');
+            setTimeout(() => location.href = '/tasks', 800);
+        } else {
+            showToast(data.error || '启动失败', 'error');
+        }
+    } catch (err) {
+        console.error('collectHotSource error:', err);
+        showToast('请求异常: ' + (err.message || '未知错误'), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || '立即采集'; }
     }
 }
 </script>
