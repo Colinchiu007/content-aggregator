@@ -28,6 +28,83 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+def _is_reasoning_content(content: str) -> bool:
+    """判断文本是否是推理/分析内容（而非正式文章）"""
+    if not content:
+        return True
+
+    c = content.strip()
+
+    # 1. 以英文标点/小写字母开头 → 推理内容
+    if c and (c[0].isascii() and not c[0].isascii() == False):  # 简化：首字符是ASCII
+        # 更精确：首字符是英文标点或字母
+        if c[0] in '.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz':
+            return True
+
+    # 2. 检测英文推理特征（句子开头模式）
+    english_reasoning_starts = [
+        '. The ', '. I ', '. First', '. Let',
+        'The first', 'I need', 'Let me', 'First,', 'Actually,',
+        'Looking at', 'Based on', 'In this', 'To ', 'Alright',
+        'Okay,', 'So,', 'Hmm,', 'Well,', 'Now,',
+        'The user', 'The content', 'The article',
+    ]
+    for pat in english_reasoning_starts:
+        if c.startswith(pat) or c[:100].find(pat) != -1:
+            return True
+
+    # 3. 中文字符比例过低（< 15%）→ 可能是英文推理
+    chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', c))
+    total_chars = len(c)
+    if total_chars > 30 and chinese_chars / total_chars < 0.15:
+        return True
+
+    # 4. 包含 <think> 标签
+    if "<think>" in c or "</think>" in c:
+        return True
+
+    return False
+
+
+def _extract_final_from_reasoning(reasoning: str) -> str:
+    """
+    从推理内容中提取最终答案
+    
+    Args:
+        reasoning: 推理内容
+        
+    Returns:
+        提取的最终答案，如果无法提取则返回空字符串
+    """
+    if not reasoning:
+        return ""
+    
+    # 策略 1：查找 <think> 标签后的内容
+    _think_pat = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+    matches = _think_pat.findall(reasoning)
+    if matches:
+        # 返回最后一个 <think> 块之后的内容
+        last_think_end = reasoning.rfind("</think>")
+        if last_think_end != -1:
+            final = reasoning[last_think_end + len("</think>"):].strip()
+            if final:
+                return final
+    
+    # 策略 2：查找答案标记
+    answer_markers = ["答案：", "回答：", "最终答案：", "Answer:", "Final answer:"]
+    for marker in answer_markers:
+        idx = reasoning.rfind(marker)
+        if idx != -1:
+            return reasoning[idx + len(marker):].strip()
+    
+    # 策略 3：返回最后一段作为答案
+    paragraphs = reasoning.split("\n\n")
+    if paragraphs:
+        return paragraphs[-1].strip()
+    
+    return ""
+
+
 class LLMClient:
     """
     统一 LLM 客户端
@@ -219,25 +296,41 @@ class LLMClient:
                     # ⚠️ 优先使用 content；只有 content 为 None 时才 fallback 到 reasoning
                     content = message.get("content")
                     reasoning = message.get("reasoning") or message.get("reasoning_content", "")
-                    if content is None:
-                        # 推理模型（DeepSeek-R1 等）content=None，输出在 reasoning 字段
-                        # 尝试从 reasoning 中提取最终答案（查找常见结尾标记）
-                        _final_markers = ["Final Answer:", "答案:", "最终结果:", "【标题】", "# "]
-                        _found = False
-                        for _marker in _final_markers:
-                            _idx = reasoning.rfind(_marker)
-                            if _idx != -1:
-                                content = reasoning[_idx:].strip()
-                                _found = True
-                                break
-                        if not _found:
-                            # 无法提取最终答案，记录 warning 并返回空字符串（触发上层错误处理）
-                            logger.warning(f"[_call_openai_compatible] 模型返回 content=None 且无法从 reasoning 提取最终答案，reasoning 前200字: {reasoning[:200]}")
-                            content = ""
-                    # 清理 content 中的 <think> 等推理标签（部分模型把推理放 content 里）
-                    if content:
+                    # 推理模型响应处理：content + reasoning 字段
+                    raw_content = message.get("content") or ""
+                    reasoning = message.get("reasoning") or message.get("reasoning_content") or ""
+
+                    # 清理 raw_content 中的 <think> 等推理标签
+                    if raw_content:
                         _think_pat = re.compile(r"<think>.*?</think>", re.DOTALL)
-                        content = _think_pat.sub("", content).strip()
+                        raw_content = _think_pat.sub("", raw_content).strip()
+
+                    # 决定最终使用的 content
+                    content = raw_content
+
+                    if not content or _is_reasoning_content(content):
+                        # raw_content 为空或是推理内容，尝试从 reasoning 字段提取
+                        content = _extract_final_from_reasoning(reasoning)
+                        if not content:
+                            # reasoning 也无法提取，使用 raw_content
+                            content = raw_content
+
+                    # 最终保险：去掉开头非中文字符的英文推理前缀
+                    if content:
+                        # 找到第一个中文字符的位置
+                        _fc = re.search(r'[\u4e00-\u9fff]', content)
+                        if _fc and _fc.start() > 0:
+                            _prefix = content[:_fc.start()].strip()
+                            # 如果前缀看起来像英文推理（含英文单词），则去掉
+                            if re.search(r'[a-zA-Z]{5,}', _prefix):
+                                logger.warning(f"[_call_openai_compatible] 去掉英文推理前缀（{_fc.start()} chars），前缀: {_prefix[:100]}")
+                                content = content[_fc.start():].strip()
+
+                    # 最终保险2：如果 content 仍为空且有 reasoning，截取 reasoning 后半部分
+                    if not content and reasoning:
+                        mid = len(reasoning) // 2
+                        content = reasoning[mid:].strip()
+                        logger.warning(f"[_call_openai_compatible] 无法提取最终答案，使用 reasoning 后半段，前200字: {content[:200]}")
                     usage = result.get("usage", {})
                     
                     logger.info(f"[_call_openai_compatible] SUCCESS: got {len(content)} chars, usage={usage}")
