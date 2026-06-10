@@ -389,9 +389,9 @@ if AUTH_ENABLED:
 
 # 重置密码页面（GET /auth/reset-password）
 @app.get("/auth/reset-password", response_class=HTMLResponse)
-async def reset_password_page(request: Request):
+async def reset_password_page(token: str = Query(None)):
     """重置密码页面（GET 请求，显示 HTML 表单）"""
-    token = request.query_params.get("token")
+    # token 现在是查询参数，直接从函数参数获取
     print(f"[RESET-PAGE] Received request with token: {token[:30] if token else 'None'}...")
     
     if not token:
