@@ -75,7 +75,7 @@
 {% block extra_js %}
 <script>
     // 取消任务
-    async function cancelTask(taskId) {
+    async function cancelTask(taskId, event) {
         if (!confirm('确定要取消这个任务吗？')) {
             return;
         }
@@ -106,6 +106,67 @@
         }
     }
 
+    // 获取状态对应的徽章 Class
+    function getStatusBadgeClass(status) {
+        const map = {
+            'pending': 'muted',
+            'running': 'primary',
+            'done': 'success',
+            'error': 'danger',
+            'cancelled': 'warning'
+        };
+        return map[status] || 'muted';
+    }
+
+    // 获取状态对应的中文文本
+    function getStatusText(status) {
+        const map = {
+            'pending': '等待中',
+            'running': '运行中',
+            'done': '完成',
+            'error': '失败',
+            'cancelled': '已取消'
+        };
+        return map[status] || status;
+    }
+
+    // 轮询单个任务状态（WebSocket 失败的兜底）
+    function pollJob(taskId) {
+        fetch(`/api/tasks/${taskId}`)
+            .then(resp => resp.json())
+            .then(task => {
+                if (!task || task.error) return;
+                
+                // 手动触发一次更新
+                registerTaskUpdateHandler.cb && registerTaskUpdateHandler.cb({
+                    task_id: taskId,
+                    status: task.status,
+                    message: task.message,
+                    progress: task.progress || 0
+                });
+                
+                // 如果还在运行，继续轮询
+                if (task.status === 'running' || task.status === 'pending') {
+                    setTimeout(() => pollJob(taskId), 3000);
+                } else {
+                    // 完成后刷新页面（显示结果）
+                    setTimeout(() => location.reload(), 1500);
+                }
+            })
+            .catch(err => console.error('轮询失败:', err));
+    }
+
+    // 页面加载后，为所有运行中的任务启动轮询兜底
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('.task-status[data-task-id]').forEach(el => {
+            const badge = el.querySelector('.task-status-badge');
+            if (badge && badge.textContent.trim() === '运行中') {
+                const taskId = el.dataset.taskId;
+                setTimeout(() => pollJob(taskId), 5000);  // 5秒后启动轮询（给 WebSocket 一个机会）
+            }
+        });
+    });
+
     // 注册任务更新处理器
     registerTaskUpdateHandler((data) => {
         const el = document.getElementById('task-' + data.task_id);
@@ -123,25 +184,40 @@
         const msgDiv = el.querySelector('.task-message');
         if (msgDiv && data.message) msgDiv.textContent = data.message;
 
-        // 更新进度条
-        const progressBar = el.querySelector('.task-progress-bar');
-        const progressText = el.querySelector('.task-progress-text');
+        // 更新进度条（用 requestAnimationFrame 批量更新，防止 UI 阻塞）
         if (data.status === 'running') {
-            // 显示进度条（如果不存在则创建）
-            if (!progressBar) {
-                const container = el.querySelector('div[style*="flex:1"]');
-                if (container) {
-                    const barHtml = `
-                        <div style="margin-top:8px;background:var(--bg);border-radius:4px;overflow:hidden;height:6px;">
-                            <div class="task-progress-bar" style="width:${data.progress || 0}%;height:100%;background:var(--primary);transition:width 0.3s"></div>
-                        </div>
-                        <div style="font-size:11px;color:var(--text-muted);margin-top:2px" class="task-progress-text">${data.progress || 0}%</div>
-                    `;
-                    container.insertAdjacentHTML('beforeend', barHtml);
-                }
-            } else {
-                progressBar.style.width = `${data.progress || 0}%`;
-                if (progressText) progressText.textContent = `${data.progress || 0}%`;
+            // 缓存到元素上，由 RAF 统一更新
+            el._pendingProgress = data.progress || 0;
+            
+            if (!el._rafPending) {
+                el._rafPending = true;
+                requestAnimationFrame(() => {
+                    const p = el._pendingProgress || 0;
+                    
+                    // 显示进度条（如果不存在则创建）
+                    let progressBar = el.querySelector('.task-progress-bar');
+                    let progressText = el.querySelector('.task-progress-text');
+                    
+                    if (!progressBar) {
+                        const container = el.querySelector('div[style*="flex:1"]');
+                        if (container) {
+                            const barHtml = `
+                                <div style="margin-top:8px;background:var(--bg);border-radius:4px;overflow:hidden;height:6px;">
+                                    <div class="task-progress-bar" style="width:${p}%;height:100%;background:var(--primary);transition:width 0.3s"></div>
+                                </div>
+                                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" class="task-progress-text">${p}%</div>
+                            `;
+                            container.insertAdjacentHTML('beforeend', barHtml);
+                            progressBar = el.querySelector('.task-progress-bar');
+                            progressText = el.querySelector('.task-progress-text');
+                        }
+                    }
+                    
+                    if (progressBar) progressBar.style.width = `${p}%`;
+                    if (progressText) progressText.textContent = `${p}%`;
+                    
+                    el._rafPending = false;
+                });
             }
         }
 
