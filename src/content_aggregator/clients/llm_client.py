@@ -154,6 +154,42 @@ class LLMClient:
         # 旧版扁平格式或空配置 - 原样返回
         return config
 
+    @staticmethod
+    def _decrypt_key(key: str | None) -> str | None:
+        """解密 enc: 前缀的加密 Key（与 YouTubeCollector 相同逻辑）"""
+        if not key or not key.startswith('enc:'):
+            return key
+        
+        try:
+            from cryptography.fernet import Fernet
+            import os
+            
+            # 获取加密密钥
+            enc_key = os.environ.get('CONTENT_AGGREGATOR_ENC_KEY')
+            if not enc_key:
+                # 从 config.yaml 读取 encryption_key
+                import pathlib, yaml
+                config_path = pathlib.Path(__file__).parent.parent.parent / "config" / "config.yaml"
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        cfg = yaml.safe_load(f)
+                        enc_key = cfg.get('encryption_key')
+                except Exception:
+                    pass
+            
+            if not enc_key:
+                logger.warning('[LLMClient] 未找到加密密钥，无法解密 API Key')
+                return None
+            
+            # 解密
+            fernet = Fernet(enc_key.encode())
+            decrypted = fernet.decrypt(key[4:].encode())  # 去掉 'enc:' 前缀
+            return decrypted.decode('utf-8')
+            
+        except Exception as e:
+            logger.error(f'[LLMClient] API Key 解密失败: {e}')
+            return None
+
     def __init__(self, config: dict[str, Any]):
         """
         初始化 LLM 客户端
@@ -164,8 +200,10 @@ class LLMClient:
         # 标准化配置（兼容新旧两种格式）
         config = self._normalize_config(config)
         
+        # 解密 API Key（如果是 enc: 前缀）
         self.provider = config.get("provider", "deepseek").lower()
-        self.api_key = config.get("api_key", "")
+        raw_key = config.get("api_key", "")
+        self.api_key = self._decrypt_key(raw_key) if raw_key else ""
         self.model = config.get("model", "deepseek-chat")
         self.base_url = config.get("base_url", "")
         self.max_tokens = config.get("max_tokens", 4096)
