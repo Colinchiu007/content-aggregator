@@ -435,8 +435,16 @@ class RewriteProcessor:
         usage: dict[str, int] | None = None
     ) -> RewriteResult:
         """解析 LLM 响应"""
-        # 提取标题(修复解析逻辑)
-        title = original_content.title
+        # 清理推理标签（部分模型把推理内容放在 content 字段）
+        _think_pat = re.compile(r"<think>.*?</think>", re.DOTALL)
+        response = _think_pat.sub("", response).strip()
+
+        # 简单检测：如果内容以数字列表开头（如"1."），很可能是推理过程
+        import re as _re
+        _is_numbered_list = bool(_re.match(r"^\s*\d+\.", response.strip()))
+        if _is_numbered_list:
+            logger.warning(f"[RewriteProcessor._parse_response] 响应以数字列表开头，疑似推理内容: {response[:200]}")
+            return RewriteResult(success=False, original_content=original_content, error="模型返回了推理内容（以数字列表开头），请检查模型配置或提示词。")
         # 方法1:标准格式 【标题】xxx
         if "【标题】" in response:
             title_match = re.search(r"【标题】\s*(.+?)(?:\n|$)", response)

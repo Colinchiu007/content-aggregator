@@ -217,8 +217,26 @@ class LLMClient:
                     # - 推理模型（如 sensenova-6.7-flash-lite）：message.reasoning 或 message.reasoning_content
                     # ⚠️ 优先使用 content；只有 content 为 None 时才 fallback 到 reasoning
                     content = message.get("content")
+                    reasoning = message.get("reasoning") or message.get("reasoning_content", "")
                     if content is None:
-                        content = message.get("reasoning") or message.get("reasoning_content", "")
+                        # 推理模型（DeepSeek-R1 等）content=None，输出在 reasoning 字段
+                        # 尝试从 reasoning 中提取最终答案（查找常见结尾标记）
+                        _final_markers = ["Final Answer:", "答案:", "最终结果:", "【标题】", "# "]
+                        _found = False
+                        for _marker in _final_markers:
+                            _idx = reasoning.rfind(_marker)
+                            if _idx != -1:
+                                content = reasoning[_idx:].strip()
+                                _found = True
+                                break
+                        if not _found:
+                            # 无法提取最终答案，记录 warning 并返回空字符串（触发上层错误处理）
+                            logger.warning(f"[_call_openai_compatible] 模型返回 content=None 且无法从 reasoning 提取最终答案，reasoning 前200字: {reasoning[:200]}")
+                            content = ""
+                    # 清理 content 中的 <think> 等推理标签（部分模型把推理放 content 里）
+                    if content:
+                        _think_pat = re.compile(r"<think>.*?</think>", re.DOTALL)
+                        content = _think_pat.sub("", content).strip()
                     usage = result.get("usage", {})
                     
                     logger.info(f"[_call_openai_compatible] SUCCESS: got {len(content)} chars, usage={usage}")
