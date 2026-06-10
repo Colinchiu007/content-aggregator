@@ -242,8 +242,8 @@ class RewriteProcessor:
 
         # ⚠️ 输入校验：防止短文本触发异常推理
         _raw = (content.content or "").strip()
-        if len(_raw) < 50:
-            _msg = f"输入内容过短（仅 {len(_raw)} 字符），请提供至少 50 字的完整文章"
+        if len(_raw) < 20:
+            _msg = f"输入内容过短（仅 {len(_raw)} 字符），请提供至少 20 字的完整文章"
             logger.warning(f"[RewriteProcessor.rewrite] INPUT_TOO_SHORT: len={len(_raw)}, title={content.title[:60]}")
             return RewriteResult(
                 success=False,

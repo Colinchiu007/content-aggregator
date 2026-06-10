@@ -74,9 +74,10 @@
             <!-- 处理按钮 -->
             <div class="compose-button-col">
                 <div class="form-label-spacer"></div> <!-- label spacer -->
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" class="btn btn-primary" id="compose-submit-btn">
                     🚀 处理
                 </button>
+                <div id="compose-hint" class="compose-hint"></div>
             </div>
         </div>
     </form>
@@ -256,5 +257,33 @@
             showToast(msg.message, 'success');
         }
     }
+
+    // 前端输入校验：不足 20 字禁用改写按钮
+    (function () {
+        const MIN_LEN = 20;
+        const contentEl = document.getElementById('compose-content');
+        const actionEl = document.getElementById('compose-action');
+        const btnEl = document.getElementById('compose-submit-btn');
+        const hintEl = document.getElementById('compose-hint');
+
+        function updateButtonState() {
+            const len = contentEl.value.trim().length;
+            const isRewrite = actionEl.value === 'rewrite';
+
+            btnEl.disabled = false;
+            hintEl.style.display = 'none';
+
+            if (isRewrite && len > 0 && len < MIN_LEN) {
+                btnEl.disabled = true;
+                hintEl.textContent = `还需要输入 ${MIN_LEN - len} 个字`;
+                hintEl.style.color = '#e74c3c';
+                hintEl.style.display = 'block';
+            }
+        }
+
+        contentEl.addEventListener('input', updateButtonState);
+        actionEl.addEventListener('change', updateButtonState);
+        updateButtonState();
+    })();
 </script>
 {% endblock %}
