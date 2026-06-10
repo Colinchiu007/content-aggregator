@@ -89,11 +89,18 @@ class RewriteProcessor:
     """
 
     # ⚠️ 强制禁止推理输出（防御 LLM 输出 Chain-of-Thought）
+    # ⚠️ 强制禁止推理输出（防御 LLM 输出 Chain-of-Thought）
     NO_REASONING = (
-        "⚠️ 绝对禁止输出任何推理过程、分析步骤、或思考链"
-        "（如'1. 分析问题', '首先', 'Identify the issue'等）。\n"
-        "⚠️ 严禁在输出中包含任何 Chain-of-Thought、Reasoning、或内部分析。\n"
-        "✅ 只输出最终改写结果，不要任何解释、前缀、或后缀。\n"
+        "\n\n"
+        "========== 绝对禁止 ==========\n"
+        "❌ 禁止输出任何分析过程、提纲、大纲、outline、drafting\n"
+        "❌ 禁止输出 Analyze the Input Text、Core Theme、Drafting the Content\n"
+        "❌ 禁止输出 1. 分析问题、首先、Identify the issue\n"
+        "❌ 禁止输出任何 Markdown 格式的提纲（如 **Analyze**、**Outline:**）\n"
+        "❌ 禁止在输出中包含任何 Chain-of-Thought、Reasoning、或内部分析\n"
+        "\n"
+        "✅ 只输出最终改写后的文章正文（从标题开始，直接写文章）\n"
+        "✅ 第一个字符必须是中文或英文字母（文章标题或正文），绝对不是数字或星号\n"
         "\n"
     )
 
@@ -438,6 +445,27 @@ class RewriteProcessor:
         # 清理推理标签（部分模型把推理内容放在 content 字段）
         _think_pat = re.compile(r"<think>.*?</think>", re.DOTALL)
         response = _think_pat.sub("", response).strip()
+
+        # ⚠️ 检测分析/提纲模式（LLM 输出思考过程而非文章）
+        _analysis_patterns = [
+            r"\*\*Analyze",
+            r"\*\*Core Theme:\*\*",
+            r"\*\*Drafting",
+            r"\*\*Outline:",
+            r"\*\*Mental Outline",
+            r"\*\*Intro:",
+            r"\*\*Section\s*\d",
+            r"Drafting the Content",
+            r"Analyze the Input",
+        ]
+        for _pat in _analysis_patterns:
+            if re.search(_pat, response, re.IGNORECASE):
+                logger.warning(f"[RewriteProcessor._parse_response] 响应包含分析提纲模式 '{_pat}': {response[:200]}")
+                return RewriteResult(
+                    success=False,
+                    original_content=original_content,
+                    error="模型返回了分析提纲而非文章正文。请检查模型配置或提示词。"
+                )
 
         # 简单检测：如果内容以数字列表开头（如"1."），很可能是推理过程
         import re as _re
