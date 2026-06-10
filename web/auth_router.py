@@ -51,6 +51,7 @@ def init_db():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uuid TEXT UNIQUE NOT NULL,
                 username TEXT UNIQUE NOT NULL,
                 email TEXT,
                 password_hash TEXT NOT NULL,
@@ -197,10 +198,11 @@ async def register(req: RegisterRequest):
         
         # 创建用户
         now = datetime.utcnow().isoformat()
+        user_uuid = str(uuid.uuid4())
         cursor = conn.execute(
-            "INSERT INTO users (username, email, password_hash, role, is_active, created_at, updated_at) "
-            "VALUES (?, ?, ?, 'user', 1, ?, ?)",
-            (req.username, req.email, hash_password(req.password), now, now)
+            "INSERT INTO users (uuid, username, email, password_hash, role, is_active, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 'user', 1, ?, ?)",
+            (user_uuid, req.username, req.email, hash_password(req.password), now, now)
         )
         user_id = cursor.lastrowid
         conn.commit()
