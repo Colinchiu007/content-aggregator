@@ -32,7 +32,7 @@
     </div>
     <div style="display:flex;align-items:center;gap:8px">
         {% if task.status in ['pending', 'running'] %}
-        <button onclick="cancelTask('{{ task.id }}')" class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px">取消</button>
+        <button onclick="cancelTask('{{ task.id }}', event)" class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px">取消</button>
         {% endif %}
         <span class="badge task-status-badge badge-{{ 'success' if task.status == 'done' else 'danger' if task.status == 'error' else 'warning' if task.status == 'cancelled' else 'primary' if task.status == 'running' else 'muted' }}">
             {{ {'pending': '等待中', 'running': '运行中', 'done': '完成', 'error': '失败', 'cancelled': '已取消'}.get(task.status, task.status) }}
@@ -92,10 +92,9 @@
             
             if (data.success) {
                 showToast('✅ ' + data.message, 'success');
-                // 1.5秒后刷新页面
                 setTimeout(() => location.reload(), 1500);
             } else {
-                showToast('❌ 取消失败', 'error');
+                showToast('❌ 取消失败: ' + (data.message || '未知错误'), 'error');
                 btn.disabled = false;
                 btn.textContent = '取消';
             }
@@ -130,43 +129,6 @@
         return map[status] || status;
     }
 
-    // 轮询单个任务状态（WebSocket 失败的兜底）
-    function pollJob(taskId) {
-        fetch(`/api/tasks/${taskId}`)
-            .then(resp => resp.json())
-            .then(task => {
-                if (!task || task.error) return;
-                
-                // 手动触发一次更新
-                registerTaskUpdateHandler.cb && registerTaskUpdateHandler.cb({
-                    task_id: taskId,
-                    status: task.status,
-                    message: task.message,
-                    progress: task.progress || 0
-                });
-                
-                // 如果还在运行，继续轮询
-                if (task.status === 'running' || task.status === 'pending') {
-                    setTimeout(() => pollJob(taskId), 3000);
-                } else {
-                    // 完成后刷新页面（显示结果）
-                    setTimeout(() => location.reload(), 1500);
-                }
-            })
-            .catch(err => console.error('轮询失败:', err));
-    }
-
-    // 页面加载后，为所有运行中的任务启动轮询兜底
-    document.addEventListener('DOMContentLoaded', () => {
-        document.querySelectorAll('.task-status[data-task-id]').forEach(el => {
-            const badge = el.querySelector('.task-status-badge');
-            if (badge && badge.textContent.trim() === '运行中') {
-                const taskId = el.dataset.taskId;
-                setTimeout(() => pollJob(taskId), 5000);  // 5秒后启动轮询（给 WebSocket 一个机会）
-            }
-        });
-    });
-
     // 注册任务更新处理器
     registerTaskUpdateHandler((data) => {
         const el = document.getElementById('task-' + data.task_id);
@@ -184,40 +146,29 @@
         const msgDiv = el.querySelector('.task-message');
         if (msgDiv && data.message) msgDiv.textContent = data.message;
 
-        // 更新进度条（用 requestAnimationFrame 批量更新，防止 UI 阻塞）
+        // 更新进度条（直接更新，不用 requestAnimationFrame）
         if (data.status === 'running') {
-            // 缓存到元素上，由 RAF 统一更新
-            el._pendingProgress = data.progress || 0;
+            let progressBar = el.querySelector('.task-progress-bar');
+            let progressText = el.querySelector('.task-progress-text');
             
-            if (!el._rafPending) {
-                el._rafPending = true;
-                requestAnimationFrame(() => {
-                    const p = el._pendingProgress || 0;
-                    
-                    // 显示进度条（如果不存在则创建）
-                    let progressBar = el.querySelector('.task-progress-bar');
-                    let progressText = el.querySelector('.task-progress-text');
-                    
-                    if (!progressBar) {
-                        const container = el.querySelector('div[style*="flex:1"]');
-                        if (container) {
-                            const barHtml = `
-                                <div style="margin-top:8px;background:var(--bg);border-radius:4px;overflow:hidden;height:6px;">
-                                    <div class="task-progress-bar" style="width:${p}%;height:100%;background:var(--primary);transition:width 0.3s"></div>
-                                </div>
-                                <div style="font-size:11px;color:var(--text-muted);margin-top:2px" class="task-progress-text">${p}%</div>
-                            `;
-                            container.insertAdjacentHTML('beforeend', barHtml);
-                            progressBar = el.querySelector('.task-progress-bar');
-                            progressText = el.querySelector('.task-progress-text');
-                        }
-                    }
-                    
-                    if (progressBar) progressBar.style.width = `${p}%`;
-                    if (progressText) progressText.textContent = `${p}%`;
-                    
-                    el._rafPending = false;
-                });
+            if (!progressBar) {
+                // 创建进度条
+                const container = el.querySelector('div[style*="flex:1"]');
+                if (container) {
+                    const barHtml = `
+                        <div style="margin-top:8px;background:var(--bg);border-radius:4px;overflow:hidden;height:6px;">
+                            <div class="task-progress-bar" style="width:${data.progress || 0}%;height:100%;background:var(--primary);transition:width 0.3s"></div>
+                        </div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:2px" class="task-progress-text">${data.progress || 0}%</div>
+                    `;
+                    container.insertAdjacentHTML('beforeend', barHtml);
+                    progressBar = el.querySelector('.task-progress-bar');
+                    progressText = el.querySelector('.task-progress-text');
+                }
+            } else {
+                // 更新已存在的进度条
+                progressBar.style.width = `${data.progress || 0}%`;
+                if (progressText) progressText.textContent = `${data.progress || 0}%`;
             }
         }
 
