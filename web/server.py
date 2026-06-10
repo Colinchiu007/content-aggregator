@@ -40,23 +40,29 @@ from loguru import logger
 
 from loguru import logger
 
-# 共享认证模块
-try:
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent / "team"))
-    from shared.auth.auth_routes import router as auth_router
-    from shared.auth.jwt_handler import get_user_from_token
-    AUTH_ENABLED = True
-    logger.info("已加载共享认证模块")
-except ImportError:
-    # Fallback：加载本地认证模块
-    try:
-        from web.auth_router import router as auth_router
-        from web.auth_router import get_current_user as get_user_from_token
-        AUTH_ENABLED = True
-        logger.info("已加载本地认证模块（web/auth_router.py）")
-    except ImportError:
-        AUTH_ENABLED = False
-        logger.warning("认证模块未找到，使用无认证模式")
+# 共享认证模块（已禁用，强制使用本地认证）
+# try:
+#     sys.path.insert(0, str(Path(__file__).parent.parent.parent / "team"))
+#     from shared.auth.auth_routes import router as auth_router
+#     from shared.auth.jwt_handler import get_user_from_token
+#     AUTH_ENABLED = True
+#     logger.info("已加载共享认证模块")
+# except ImportError:
+#     # Fallback：加载本地认证模块
+#     try:
+#         from web.auth_router import router as auth_router
+#         from web.auth_router import get_current_user as get_user_from_token
+#         AUTH_ENABLED = True
+#         logger.info("已加载本地认证模块（web/auth_router.py）")
+#     except ImportError:
+#         AUTH_ENABLED = False
+#         logger.warning("认证模块未找到，使用无认证模式")
+
+# 强制使用本地认证模块
+from web.auth_router import router as auth_router
+from web.auth_router import get_current_user as get_user_from_token
+AUTH_ENABLED = True
+logger.info("已强制启用本地认证模块（/api/auth 路由）")
 
 # 先把 web 目录加到 sys.path（settings_crypto 在同一目录）
 sys.path.insert(0, str(Path(__file__).parent))
@@ -589,6 +595,10 @@ strategy_store = RewriteStrategyStore(db_path=str(BASE_DIR.parent / "data" / "co
 ws_connections: list[WebSocket] = []
 bg_scheduler: BackgroundScheduler | None = None
 
+# 任务广播节流（防止 WebSocket 消息洪水）
+ws_last_broadcast: dict[str, float] = {}  # task_id -> last broadcast timestamp (ms)
+WS_BROADCAST_THROTTLE_MS = 500  # 相同任务最少间隔 500ms 广播一次
+
 
 # ========================================================================
 # 认证装饰器
@@ -612,7 +622,17 @@ async def require_auth(request: Request):
 
 
 async def broadcast_ws(message: dict):
-    """广播消息到所有 WebSocket 客户端"""
+    """广播消息到所有 WebSocket 客户端（带节流）"""
+    task_id = message.get("task_id")
+    now_ms = asyncio.get_event_loop().time() * 1000
+    
+    # 节流检查：相同 task_id 的消息至少间隔 WS_BROADCAST_THROTTLE_MS
+    if task_id and task_id in ws_last_broadcast:
+        if now_ms - ws_last_broadcast[task_id] < WS_BROADCAST_THROTTLE_MS:
+            return  # 跳过此次广播（节流）
+    
+    ws_last_broadcast[task_id] = now_ms
+    
     dead = []
     for ws in ws_connections:
         try:
@@ -620,7 +640,8 @@ async def broadcast_ws(message: dict):
         except Exception:
             dead.append(ws)
     for ws in dead:
-        ws_connections.remove(ws)
+        if ws in ws_connections:
+            ws_connections.remove(ws)
 
 
 # ========================================================================
