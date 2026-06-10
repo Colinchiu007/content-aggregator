@@ -550,22 +550,27 @@ class ContentPipeline:
 
                         # 改写（含语言检测 + 自动翻译）
                         if rewrite and self.rewrite_processor and article.word_count > 0:
+                            # 默认不翻译
+                            rewrite_cfg = RewriteConfig()
+                            
                             try:
                                 # --- Feature 17: 语言检测 ---
                                 detector = LanguageDetector(self.llm_config)
                                 lang_result = await detector.detect(content.content, title=content.title)
                                 
-                                # 构建 RewriteConfig
-                                rewrite_cfg = RewriteConfig()
+                                # 如果需要翻译，修改 config
                                 if lang_result.needs_translation():
                                     rewrite_cfg.translate_to = "zh"
                                     rewrite_cfg.source_language = lang_result.language
                                     rewrite_cfg.source_language_name = lang_result.language_name
                                     logger.info(f"[Pipeline] 检测到 {lang_result.language_name}，将翻译为中文后改写")
-                                
-                                # 调用改写（传入 config）
+                                    
+                            except Exception as e:
+                                logger.warning(f"语言检测失败（{article.title}）: {e}，将直接改写（不翻译）")
+                            
+                            # 调用改写（传入 config）
+                            try:
                                 rewrite_result = await self.rewrite_processor.rewrite(content, rewrite_cfg)
-                                
                                 if rewrite_result.success:
                                     article.content = rewrite_result.rewritten_content
                                     article.word_count = len(rewrite_result.rewritten_content)
