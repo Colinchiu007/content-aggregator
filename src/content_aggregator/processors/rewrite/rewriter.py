@@ -440,9 +440,21 @@ class RewriteProcessor:
                 break
 
         # 如果标题异常短或包含 LLM 输出痕迹,回退到原文标题
-        if len(title) < 2 or "text" in title.lower() or "body" in title.lower():
-            logger.warning(f"[RewriteProcessor] 标题解析异常,回退到原文: {title[:30]}")
+        _bad_title_patterns = ["before", "untitled", "无标题", "标题", "title"]
+        _title_lower = title.lower().strip()
+        _is_bad_title = (
+            len(title) < 2
+            or _title_lower in ("", "...", "…")
+            or any(p in _title_lower for p in _bad_title_patterns)
+            or _title_lower.startswith("before ")
+            or _title_lower.startswith("after ")
+            or re.match(r"^(好的|好的,|这是|以下是)", title)
+        )
+        if _is_bad_title:
+            logger.warning(f"[RewriteProcessor] 标题解析异常,回退到原文: parsed_title='{title[:60]}' original_title='{original_content.title[:60]}'")
             title = original_content.title
+        else:
+            logger.info(f"[RewriteProcessor] 标题解析成功: '{title[:60]}'")
 
         # 提取摘要
         summary = ""
