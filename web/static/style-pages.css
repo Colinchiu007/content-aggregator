@@ -267,3 +267,56 @@
         align-items: stretch;
     }
 }
+
+/* ---- 多平台一键发布 ---- */
+.compose-publish {
+    margin-top: 20px;
+}
+.compose-publish .card {
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px 20px;
+}
+.compose-publish h3 {
+    margin: 0 0 12px 0;
+    font-size: 15px;
+    color: #333;
+    font-weight: 600;
+}
+.publish-platforms {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 12px;
+}
+.publish-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: #444;
+    cursor: pointer;
+}
+.publish-checkbox input[type="checkbox"] {
+    accent-color: var(--primary);
+    width: 16px;
+    height: 16px;
+}
+.publish-platform-progress {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    font-size: 13px;
+    color: #555;
+}
+.publish-platform-progress + .publish-platform-progress {
+    border-top: 1px solid #f0f0f0;
+}
+.pub-status {
+    font-weight: 500;
+}
+.pub-status.pending { color: #999; }
+.pub-status.publishing { color: #3498db; }
+.pub-status.success { color: #27ae60; }
+.pub-status.error { color: #e74c3c; }

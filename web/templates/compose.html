@@ -139,6 +139,37 @@
         <a id="result-link" href="#" class="btn btn-primary btn-sm">查看详情页 →</a>
     </div>
 </div>
+
+<!-- 多平台发布区域（初始隐藏） -->
+<div id="publish-section" class="compose-publish" style="display:none;">
+    <div class="card">
+        <h3 style="margin-bottom:12px;">📤 一键发布</h3>
+        <div class="publish-platforms">
+            <label class="publish-checkbox">
+                <input type="checkbox" id="pub-wechat" value="wechat" checked>
+                微信公众号
+            </label>
+            <label class="publish-checkbox">
+                <input type="checkbox" id="pub-zhihu" value="zhihu" checked>
+                知乎专栏
+            </label>
+        </div>
+        <button class="btn btn-primary" id="publish-btn" onclick="handlePublish()">
+            🚀 发布到选中的平台
+        </button>
+        <div id="publish-progress" style="margin-top:12px;display:none;">
+            <div class="publish-platform-progress" id="pub-progress-wechat">
+                <span>微信公众号：</span>
+                <span class="pub-status pending">等待中</span>
+            </div>
+            <div class="publish-platform-progress" id="pub-progress-zhihu">
+                <span>知乎专栏：</span>
+                <span class="pub-status pending">等待中</span>
+            </div>
+        </div>
+        <div id="publish-result" style="margin-top:8px;"></div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -250,6 +281,8 @@
                     }
                 }
                 document.getElementById('compose-result').style.display = 'block';
+                // 改写完成后显示一键发布区域
+                document.getElementById('publish-section').style.display = 'block';
                 return;
             } else if (task.status === 'error') {
                 el.innerHTML = `<span class="task-dot error"></span><span>${task.message}</span>`;
@@ -310,5 +343,130 @@
         actionEl.addEventListener('change', updateButtonState);
         updateButtonState();
     })();
+
+    // ===== 多平台一键发布函数 =====
+
+    let publishArticleId = null;
+
+    function showPublishSection(articleId) {
+        publishArticleId = articleId;
+        document.getElementById('publish-section').style.display = 'block';
+    }
+
+    async function handlePublish() {
+        // 收集选中的平台
+        const platforms = [];
+        if (document.getElementById('pub-wechat').checked) platforms.push('wechat');
+        if (document.getElementById('pub-zhihu').checked) platforms.push('zhihu');
+
+        if (platforms.length === 0) {
+            showToast('请至少选择一个发布平台', 'error');
+            return;
+        }
+
+        if (!publishArticleId) {
+            showToast('没有可发布的文章', 'error');
+            return;
+        }
+
+        // 显示进度区域
+        document.getElementById('publish-progress').style.display = 'block';
+        document.getElementById('publish-result').textContent = '';
+        document.getElementById('publish-btn').disabled = true;
+
+        // 重置平台状态
+        ['wechat', 'zhihu'].forEach(p => {
+            const el = document.querySelector('#pub-progress-' + p + ' .pub-status');
+            if (el) {
+                el.textContent = '发布中...';
+                el.className = 'pub-status publishing';
+            }
+        });
+
+        try {
+            const resp = await fetch('/api/publish', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    article_id: parseInt(publishArticleId),
+                    platforms: platforms,
+                    options: {}
+                })
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json();
+                showToast('发布失败: ' + (err.detail || '未知错误'), 'error');
+                document.getElementById('publish-btn').disabled = false;
+                return;
+            }
+
+            const data = await resp.json();
+            showToast('发布任务已启动', 'info');
+            pollPublishTask(data.task_id);
+        } catch (e) {
+            showToast('网络错误: ' + e.message, 'error');
+            document.getElementById('publish-btn').disabled = false;
+        }
+    }
+
+    async function pollPublishTask(taskId) {
+        const poll = async () => {
+            try {
+                const resp = await fetch('/api/publish/' + taskId);
+                if (!resp.ok) {
+                    showToast('查询发布进度失败', 'error');
+                    document.getElementById('publish-btn').disabled = false;
+                    return;
+                }
+
+                const task = await resp.json();
+                const results = task.results || [];
+                const allDone = results.length > 0;
+
+                // 更新每个平台的发布进度
+                results.forEach(r => {
+                    const el = document.querySelector('#pub-progress-' + r.platform + ' .pub-status');
+                    if (!el) return;
+                    if (r.success) {
+                        el.textContent = '✅ 发布成功';
+                        el.className = 'pub-status success';
+                    } else {
+                        el.textContent = '❌ 发布失败: ' + (r.error || '未知错误');
+                        el.className = 'pub-status error';
+                    }
+                });
+
+                if (task.status === 'done') {
+                    document.getElementById('publish-btn').disabled = false;
+                    const successCount = results.filter(r => r.success).length;
+                    document.getElementById('publish-result').textContent = 
+                        '✅ 发布完成：' + successCount + '/' + results.length + ' 个平台发布成功';
+                    showToast('发布完成', 'success');
+                    return;
+                }
+
+                if (task.status === 'error') {
+                    document.getElementById('publish-btn').disabled = false;
+                    document.getElementById('publish-result').textContent = '❌ 发布任务出错';
+                    showToast('发布任务出错', 'error');
+                    return;
+                }
+
+                // 如果还有未完成的平台，继续轮询
+                if (results.length < (task.platforms || []).length) {
+                    setTimeout(poll, 2000);
+                } else {
+                    // 所有平台都有结果但任务未标记完成
+                    setTimeout(poll, 3000);
+                }
+            } catch (e) {
+                showToast('轮询出错: ' + e.message, 'error');
+                setTimeout(poll, 5000);
+            }
+        };
+
+        setTimeout(poll, 1500);
+    }
 </script>
 {% endblock %}
