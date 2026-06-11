@@ -203,7 +203,7 @@ class LLMClient:
         # 解密 API Key（如果是 enc: 前缀）
         self.provider = config.get("provider", "deepseek").lower()
         raw_key = config.get("api_key", "")
-        self.api_key = self._decrypt_key(raw_key) if raw_key else ""
+        self.api_key = self._decrypt_key(raw_key) or ""
         self.model = config.get("model", "deepseek-chat")
         self.base_url = config.get("base_url", "")
         self.max_tokens = config.get("max_tokens", 4096)
