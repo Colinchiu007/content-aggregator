@@ -25,7 +25,7 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 # 将父目录添加到 sys.path，使 `import web.xxx` 可用
 PARENT_DIR = Path(__file__).parent.parent
@@ -75,6 +75,38 @@ from content_aggregator.models import Article, Content
 from content_aggregator.strategy_store import RewriteStrategyStore
 from content_aggregator.processors.asr_processor import ASRConfig
 from server_scheduler import BackgroundScheduler
+
+
+# ========================================================================
+# WebSocket 全局变量和广播函数
+# ========================================================================
+
+# WebSocket 连接列表
+ws_connections: list[WebSocket] = []
+
+# WebSocket 广播节流控制
+_last_ws_broadcast = 0
+_WS_THROTTLE_MS = 1000  # 1秒节流
+
+
+async def broadcast_ws(message: dict):
+    """广播消息到所有 WebSocket 连接（带节流）"""
+    global _last_ws_broadcast
+    import time
+    now = time.time() * 1000  # 转换为毫秒
+    if now - _last_ws_broadcast < _WS_THROTTLE_MS:
+        return  # 节流：跳过本次广播
+    _last_ws_broadcast = now
+    
+    disconnected = []
+    for ws in ws_connections:
+        try:
+            await ws.send_json(message)
+        except Exception:
+            disconnected.append(ws)
+    for ws in disconnected:
+        if ws in ws_connections:
+            ws_connections.remove(ws)
 
 
 # ========================================================================
@@ -2711,4 +2743,74 @@ async def page_forgot_password(request: Request):
 @app.get("/auth/reset", response_class=HTMLResponse)
 async def page_reset_password(request: Request, token: str = ""):
     """重置密码页面（token 从 URL 参数获取）"""
-    return render_template("reset_password.html", {"request": request, "token": token})
+    return render_template("reset_password.html", {"request": request, "token": token})# ========================================================================
+# 多平台发布 API（TDD Green 阶段 - 最小实现）
+# ========================================================================
+
+from content_aggregator.models import PublishRequest, PublishResult, PublishTask
+from datetime import datetime
+import uuid
+
+# 内存存储
+publish_tasks: Dict[str, dict] = {}
+
+# 函数存根（供测试 mock）
+def create_publish_task(article_id: int, platforms: List[str], options: dict) -> dict:
+    """创建发布任务（最小实现）"""
+    task_id = str(uuid.uuid4())
+    task = {
+        "task_id": task_id,
+        "article_id": article_id,
+        "platforms": platforms,
+        "status": "pending",
+        "results": [],
+        "created_at": datetime.now().isoformat()
+    }
+    publish_tasks[task_id] = task
+    return task
+
+def get_publish_task(task_id: str) -> Optional[dict]:
+    """获取发布任务（最小实现）"""
+    return publish_tasks.get(task_id)
+
+def get_article_by_id(article_id: int) -> Optional[dict]:
+    """获取文章（最小实现）"""
+    # 最小实现：返回 mock 文章或 None
+    return {"id": article_id, "title": "Test Article"}
+
+# API 端点
+@app.post("/api/publish")
+async def api_create_publish_task(request: Request, publish_req: PublishRequest):
+    """发起发布任务"""
+    # 验证文章存在
+    article = get_article_by_id(publish_req.article_id)
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    
+    # 验证平台
+    valid_platforms = ["wechat", "zhihu", "csdn", "juejin"]
+    for p in publish_req.platforms:
+        if p not in valid_platforms:
+            raise HTTPException(status_code=400, detail=f"Invalid platform: {p}")
+    
+    if len(publish_req.platforms) == 0:
+        raise HTTPException(status_code=400, detail="Platforms list is empty")
+    
+    # 创建任务
+    task = create_publish_task(
+        article_id=publish_req.article_id,
+        platforms=publish_req.platforms,
+        options=publish_req.options
+    )
+    
+    return {"task_id": task["task_id"], "status": task["status"]}
+
+@app.get("/api/publish/{task_id}")
+async def api_get_publish_task(task_id: str):
+    """查询发布进度"""
+    task = get_publish_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    return task
+
