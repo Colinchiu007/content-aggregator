@@ -1103,6 +1103,12 @@ async def api_collect_youtube(
                 articles_objs = result.get("articles", [])
                 articles_data = [a.to_dict() for a in articles_objs]
                 added = article_store.add_batch(articles_data)
+                if len(articles_objs) == 0:
+                    logger.warning(f"YouTube 采集返回 0 篇（API 搜索无结果或全部去重）")
+                elif added == 0:
+                    logger.warning(f"YouTube 采集到 {len(articles_objs)} 篇但全部去重跳过")
+                else:
+                    logger.info(f"YouTube 采集新入库 {added}/{len(articles_objs)} 篇")
                 # 必须从 articles_data 取 ID（add_batch 会赋 ID，但不会影响 articles_objs）
                 article_ids = [a["id"] for a in articles_data]
 
