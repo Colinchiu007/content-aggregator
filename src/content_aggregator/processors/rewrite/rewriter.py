@@ -315,6 +315,14 @@ class RewriteProcessor:
                 else:
                     logger.warning(f"[RewriteProcessor.rewrite] 自动重试仍失败: {result.error}")
 
+            # 后处理：强制字数上限（LLM 不一定听话）
+            if result.success and rewrite_config.max_word_count > 0:
+                _raw = result.rewritten_content or ""
+                if len(_raw) > rewrite_config.max_word_count:
+                    _trimmed = _raw[:rewrite_config.max_word_count].rstrip()
+                    result.rewritten_content = _trimmed
+                    logger.info(f"  📐 字数裁剪: {len(_raw)} -> {len(_trimmed)} (上限{rewrite_config.max_word_count})")
+
             result.duration = time.time() - start_time
             logger.info(f"[RewriteProcessor.rewrite] SUCCESS: {content.title[:60]} -> {len(result.rewritten_content)} chars")
 

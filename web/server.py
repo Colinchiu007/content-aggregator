@@ -1632,8 +1632,8 @@ async def api_compose(
                     cfg = RewriteConfig(
                         strategy=strategy_map.get(strategy, RewriteStrategy.REWRITE),
                         translate_to="zh" if translate == "yes" else None,
-                        min_word_count=word_count_min if word_count_min > 0 else 300,
-                        max_word_count=word_count_max if word_count_max > 0 else 3000,
+                        min_word_count=word_count_min if word_count_min > 0 else (max(50, word_count_max // 2) if word_count_max > 0 else 300),
+                        max_word_count=word_count_max if word_count_max > 0 else (word_count_min * 2 if word_count_min > 0 else 3000),
                     )
                     result = await processor.rewrite(c, cfg, progress_callback=progress_callback)
                     if result.success:
