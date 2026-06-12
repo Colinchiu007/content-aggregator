@@ -244,27 +244,42 @@
         const form = e.target;
         const fd = new FormData(form);
 
+        // 立即禁用按钮，防止重复点击 + 视觉反馈
+        const btn = document.getElementById('compose-submit-btn');
+        btn.disabled = true;
+        btn.innerHTML = '⏳ 处理中...';
+
         // 显示原文
         const originalContent = document.getElementById('compose-content').value;
         document.getElementById('original-text').textContent = originalContent;
 
         document.getElementById('compose-status').style.display = 'block';
         document.getElementById('compose-result').style.display = 'none';
-        const data = await apiPost('/api/compose', fd);
+        let data;
+        try {
+            data = await apiPost('/api/compose', fd);
+        } catch (err) {
+            btn.disabled = false;
+            btn.innerHTML = '🚀 处理';
+            showToast('请求失败: ' + err.message, 'error');
+            return;
+        }
 
         if (data.task_id) {
             showToast('任务已启动', 'info');
-            pollTask(data.task_id, fd.get('strategy') || 'REWRITE');
+            pollTask(data.task_id, fd.get('strategy') || 'REWRITE', btn);
         }
     }
 
-    async function pollTask(taskId, strategy) {
+    async function pollTask(taskId, strategy, submitBtn) {
         const poll = async () => {
             const resp = await fetch('/api/tasks/' + taskId);
             const task = await resp.json();
             const el = document.getElementById('compose-task');
 
             if (task.status === 'done') {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '🚀 处理';
                 el.innerHTML = `<span class="task-dot done"></span><span>${task.message}</span>`;
                 showToast(task.message, 'success');
                 document.getElementById('result-strategy').textContent = STRATEGY_NAMES[strategy] || strategy;
@@ -285,6 +300,8 @@
                 document.getElementById('publish-section').style.display = 'block';
                 return;
             } else if (task.status === 'error') {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '🚀 处理';
                 el.innerHTML = `<span class="task-dot error"></span><span>${task.message}</span>`;
                 showToast(task.message, 'error');
                 return;
