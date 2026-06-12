@@ -432,6 +432,7 @@ class YouTubeSource(BaseSource):
         将 YouTube 视频数据转为 Content 对象。
 
         当 fetch_transcripts=true 且视频无字幕时，跳过该视频（返回 None）。
+        未启用字幕模式时，使用描述作为内容，描述为空同样跳过。
         """
         try:
             published = video.get("published_at", "")
@@ -444,21 +445,24 @@ class YouTubeSource(BaseSource):
             body = ""
 
             if self.fetch_transcripts:
-                # 启用了字幕模式：优先使用字幕
+                # 启用了字幕模式：优先使用字幕，无字幕则跳过
                 transcript = await self._fetch_transcript(video["id"])
                 if transcript:
                     body = transcript
                     content_source = "subtitle"
                     logger.info(f"[YouTube] ✅ 使用字幕: {video['id']} ({len(transcript)} 字)")
                 else:
-                    # 无字幕时降级到描述，不跳过
-                    body = video.get("description", "")
-                    content_source = "description"
-                    logger.info(f"[YouTube] ⚠️ 无字幕，使用描述: {video['id']} ({len(body)} 字)")
+                    # 无可用字幕 → 跳过（设计意图：fetch_transcripts 模式下不降级到描述）
+                    logger.info(f"[YouTube] ⏭ {video['id']} 无可用字幕，跳过")
+                    return None
             else:
                 # 未启用字幕模式：使用视频描述
                 body = video.get("description", "")
                 content_source = "description"
+                # 描述为空则跳过
+                if not body.strip():
+                    logger.warning(f"[YouTube] ⏭ {video['id']} 描述为空，跳过")
+                    return None
 
             result = Content(
                 id=f"youtube_{video['id']}",
@@ -482,11 +486,6 @@ class YouTubeSource(BaseSource):
                 word_count=len(body),
                 tags=[],
             )
-
-            # 空内容保护
-            if not body.strip():
-                logger.warning(f"[YouTube] ⏭ {video['id']} 内容为空，跳过")
-                return None
 
             return result
         except Exception as e:
