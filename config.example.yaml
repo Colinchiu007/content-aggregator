@@ -1,0 +1,119 @@
+# Content Aggregator Configuration
+# 内容聚合与改写平台配置文件
+
+# LLM 配置 - 用于文章改写/翻译
+llm:
+  provider: "deepseek"  # deepseek / openai / qwen
+  model: "deepseek-v4-pro"
+  api_key: "YOUR_API_KEY_HERE"  # ⚠️ 替换为你的 API Key
+  base_url: "https://api.deepseek.com"  # 可选，自定义API地址
+  max_tokens: 2000
+  temperature: 0.7
+  max_concurrency: 3
+
+# HTTP 配置
+http:
+  timeout: 30
+  max_retries: 3
+  # 代理配置（国内访问外网时需要，设为 null 则直连）
+  proxy: null  # "http://127.0.0.1:12334"
+  # 代理不可用时的行为：skip=跳过该源，retry=重试直连（默认 skip）
+  proxy_fallback: "skip"  # skip | retry
+
+# 数据库配置
+database:
+  path: "./data/content.db"
+
+# 导出配置
+export:
+  output_dir: "./output/exports"
+  default_format: "markdown"
+  filename_template: "{title}_{date}.{ext}"
+
+# ============================================================
+# 数据源配置
+# ============================================================
+# 所有源在网络错误时自动跳过，不中断流程，并输出友好提示
+# 配置项留空即表示该源未启用
+
+sources:
+  # 内置采集器
+  rss:
+    - name: "阮一峰网络日志"
+      url: "http://feeds.feedburner.com/ruanyifeng"
+      enabled: true
+    - name: "科技爱好者周刊"
+      url: "https://github.com/ruanyf/weekly/commits.atom"
+      enabled: false
+
+  youtube:
+    api_key: null  # YouTube Data API v3 Key，免费额度每天 10000 单位
+    channels: []
+
+  twitter:
+    bearer_token: null  # Twitter API v2 Bearer Token
+    users: []
+    queries: []
+
+  tiktok:
+    session_id: null  # TikTok Cookie 中的 sessionid
+    users: []
+
+  douyin:
+    cookie: null  # 抖音网页登录 Cookie
+    client_key: null  # 抖音开放平台应用 Key
+    users: []
+
+  xiaohongshu:
+    cookie: null  # 小红书网页登录 Cookie
+    xhs_token: null  # 小红书 X-s 令牌（可选）
+    users: []
+    keywords: []
+
+  wechat:
+    api_key: null  # 第三方 API Key（如新榜 API）
+    accounts: []
+
+  sitemap:
+    sites: []
+
+  api:
+    endpoints: []
+
+# 改写策略配置
+rewrite:
+  strategy: "PARAPHRASE"  # SUMMARIZE / STYLE_TRANSFER / PARAPHRASE / REWRITE / EXPAND
+  prompt_template: |
+    请将以下文章进行改写，要求：
+    1. 保持原文核心观点不变
+    2. 语言风格更加生动、通俗易懂
+    3. 适当加入个人见解
+    4. 删除广告和无关内容
+
+    原文：
+    {content}
+
+    请直接输出改写后的文章，不要添加任何说明。
+
+# 格式化配置
+formatter:
+  markdown:
+    include_metadata: true
+    metadata_fields: ["title", "author", "source", "date", "tags"]
+  html:
+    use_inline_styles: true
+    font_size: 17
+    line_height: 1.75
+    font_family: "Helvetica Neue, Helvetica, Arial, sans-serif"
+
+# 翻译配置
+translation:
+  enabled: false
+  default_language: "EN"  # EN / JA / KO / FR / DE / ES / PT / RU / AR / VI
+  tone: "casual"  # formal / casual / academic
+  preserve_formatting: true
+
+# 定时任务配置
+scheduler:
+  enabled: false
+  jobs: []

@@ -1,0 +1,1574 @@
+"""
+内容处理流水线
+
+使用示例：
+    pipeline = ContentPipeline(config)
+    
+    # 处理单个URL
+    article = await pipeline.process_url("https://example.com/rss.xml")
+    
+    # 处理内容列表
+    articles = await pipeline.process_contents(contents, progress_callback=my_callback)
+    
+    # 导出
+    from content_aggregator.exporters import Exporter
+    exporter = Exporter("./output")
+    path = exporter.export(article, "markdown")
+"""
+
+import asyncio
+import time
+import uuid
+from pathlib import Path
+from typing import Any, Callable, Optional
+
+from loguru import logger
+
+from content_aggregator.models import Content, Article
+from content_aggregator.sources.rss import RSSCollector
+from content_aggregator.sources.base import BaseSource, SourceConfig
+from content_aggregator.sources import get_collector
+from content_aggregator.sources.collectors.base_collector import BaseCollector, SourceResult
+from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
+from content_aggregator.processors.language_detector import LanguageDetector
+from content_aggregator.processors.formatter import ContentFormatter
+from content_aggregator.processors.translator import TranslatorProcessor, TranslationConfig, TranslationLanguage
+from content_aggregator.processors.seo import SEOProcessor, SEOConfig
+from content_aggregator.processors.filter.sensitive import SensitiveFilter, SensitiveFilterConfig
+from content_aggregator.processors.filter.dedup import DedupFilter, DedupFilterConfig
+from content_aggregator.exporters import Exporter
+from content_aggregator.notifications import create_notifiers, NotificationMessage
+from content_aggregator.workflows.task_store import (
+    TaskStore,
+    TaskStatus,
+    ItemStage,
+    is_task_cancelled,
+    mark_task_active,
+    mark_task_inactive,
+    TaskCancelledError,
+)
+
+
+class ContentPipeline:
+    """
+    内容处理流水线
+
+    流程：RSS采集 → 敏感词过滤 → 去重过滤 → 内容改写 → SEO优化 → 格式化 → 导出
+
+    使用示例：
+        config = {
+            "llm": {
+                "provider": "deepseek",
+                "api_key": "sk-xxx",
+                "model": "deepseek-chat"
+            },
+            "export": {
+                "output_dir": "./output/exports"
+            },
+            "filter": {
+                "sensitive": {"enabled": true},
+                "dedup": {"enabled": true}
+            }
+        }
+        
+        pipeline = ContentPipeline(config)
+        article = await pipeline.process_url("https://example.com/rss.xml")
+    """
+
+    def __init__(self, config: dict[str, Any]):
+        """
+        初始化流水线
+
+        参数：
+            config: 配置字典
+                - llm: LLM配置
+                - sources: 数据源配置
+                - export: 导出配置
+                - http: HTTP配置（包含proxy）
+                - filter: 过滤配置（可选）
+                - translation: 翻译配置（可选）
+        """
+        self.config = config
+        self.llm_config = config.get("llm", {})
+        self.export_config = config.get("export", {})
+        self.http_config = config.get("http", {})
+        self.output_dir = self.export_config.get("output_dir", "./output/exports")
+        self.proxy = self.http_config.get("proxy")
+
+        self.sources_config = config.get("sources", {})
+        self.translation_config = config.get("translation", {})
+        self.filter_config = config.get("filter", {})
+
+        # 初始化组件
+        self.rewrite_processor: RewriteProcessor | None = None
+        self.exporter = Exporter(self.output_dir)
+        
+        # 初始化过滤器
+        self._init_filters()
+
+        # 初始化通知器
+        self._init_notifiers()
+
+        # ⚡ 断点续跑存储（懒初始化）
+        self._checkpoint_store: TaskStore | None = None
+
+    def _init_filters(self):
+        """初始化过滤器"""
+        # 敏感词过滤器
+        sensitive_config_dict = self.filter_config.get("sensitive", {})
+        sensitive_enabled = sensitive_config_dict.get("enabled", True)
+        sensitive_words = sensitive_config_dict.get("words", [
+            "色情", "赌博", "毒品", "暴力", "恐怖",
+            "诈骗", "传销", "非法集资",
+            "加微信", "扫码", "免费领", "点击就送"
+        ])
+        sensitive_replace_char = sensitive_config_dict.get("replace_char", "*")
+        sensitive_strict_mode = sensitive_config_dict.get("strict_mode", False)
+        
+        sensitive_config = SensitiveFilterConfig(
+            enabled=sensitive_enabled,
+            words=sensitive_words,
+            replace_char=sensitive_replace_char,
+            strict_mode=sensitive_strict_mode
+        )
+        self.sensitive_filter = SensitiveFilter(sensitive_config)
+        
+        # 去重过滤器
+        dedup_config_dict = self.filter_config.get("dedup", {})
+        dedup_enabled = dedup_config_dict.get("enabled", True)
+        dedup_threshold = dedup_config_dict.get("similarity_threshold", 0.8)
+        dedup_exact = dedup_config_dict.get("exact_dedup", True)
+        dedup_fuzzy = dedup_config_dict.get("fuzzy_dedup", True)
+        dedup_min_length = dedup_config_dict.get("min_length", 50)
+        
+        # 计算 cache_file 路径（相对于项目根目录的 data/dedup_cache.json）
+        import os
+        project_root = Path(__file__).resolve().parent.parent.parent.parent
+        cache_file = dedup_config_dict.get("cache_file", str(project_root / "data" / "dedup_cache.json"))
+        
+        dedup_config = DedupFilterConfig(
+            enabled=dedup_enabled,
+            similarity_threshold=dedup_threshold,
+            exact_dedup=dedup_exact,
+            fuzzy_dedup=dedup_fuzzy,
+            min_length=dedup_min_length,
+            cache_file=cache_file
+        )
+        self.dedup_filter = DedupFilter(dedup_config)
+        
+        logger.info(f"[Pipeline] 过滤器初始化完成 - 敏感词: {sensitive_enabled}, 去重: {dedup_enabled}")
+
+    def init_checkpoint_store(self, db_path: str | None = None) -> "ContentPipeline":
+        """
+        初始化断点续跑存储（TaskStore）。
+
+        参数：
+            db_path: SQLite 数据库路径，默认 data/tasks.db
+
+        返回：
+            self（链式调用）
+        """
+        if db_path is None:
+            import os
+            from pathlib import Path
+            project_root = Path(__file__).resolve().parent.parent.parent.parent
+            db_path = str(project_root / "data" / "tasks.db")
+
+        self._checkpoint_store = TaskStore(db_path)
+        logger.info(f"[Pipeline] 断点续跑存储已初始化: {db_path}")
+        return self
+
+    def _init_notifiers(self):
+        """初始化通知器"""
+        notification_config = self.config.get("notifications", {})
+        self.notifiers = create_notifiers({"notifications": notification_config})
+        names = [n.get_name() for n in self.notifiers]
+        logger.info(f"[Pipeline] 通知器初始化完成: {names}")
+
+    async def _notify(self, title: str, body: str, level: str = "info",
+                       source_name: str = "", articles_count: int = 0,
+                       duration: float = 0.0, data: dict | None = None):
+        """发送通知到所有通知器"""
+        msg = NotificationMessage(
+            title=title, body=body, level=level,
+            source_name=source_name, articles_count=articles_count,
+            duration=duration, data=data or {}
+        )
+        results = []
+        for notifier in self.notifiers:
+            result = await notifier.notify(msg)
+            results.append(result)
+            if not result.success:
+                logger.warning(f"[Pipeline] 通知失败 ({notifier.get_name()}): {result.error}")
+        return results
+
+    async def __aenter__(self):
+        """异步上下文管理器入口"""
+        self.rewrite_processor = RewriteProcessor(self.config)
+        await self.rewrite_processor.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """异步上下文管理器退出"""
+        if self.rewrite_processor:
+            await self.rewrite_processor.__aexit__(exc_type, exc_val, exc_tb)
+
+    async def _apply_filters(self, content: Content) -> tuple[bool, str]:
+        """
+        应用过滤器
+        
+        参数：
+            content: Content 对象
+            
+        返回：
+            (should_block: bool, reason: str)
+        """
+        # 1. 敏感词过滤
+        if self.sensitive_filter.config.enabled:
+            text_to_check = f"{content.title}\n{content.content}"
+            filter_result = self.sensitive_filter.process(text_to_check)
+            
+            if filter_result["action"] == "block":
+                matched_words = ", ".join(filter_result["matched_words"])
+                logger.warning(f"[过滤] 敏感词拦截: {content.title[:40]}... (匹配词: {matched_words})")
+                return True, f"敏感词: {matched_words}"
+            
+            # 更新 content（可能已替换敏感词）
+            if filter_result["has_sensitive"] and not filter_result["action"] == "block":
+                # 非严格模式：替换敏感词后继续
+                content.title = filter_result["filtered_text"].split("\n")[0] if "\n" in filter_result["filtered_text"] else content.title
+                # 注意：这里简单处理，实际应该更精细地替换
+        
+        # 2. 去重过滤
+        if self.dedup_filter.config.enabled:
+            content_dict = {
+                "title": content.title,
+                "content": content.content
+            }
+            dedup_result = await self.dedup_filter.process(content_dict)
+            
+            if dedup_result["action"] == "block":
+                similar_to = ", ".join(dedup_result["similar_to"][:3])
+                logger.info(f"[过滤] 去重拦截: {content.title[:40]}... (相似: {similar_to})")
+                return True, f"重复内容: {similar_to}"
+        
+        return False, ""
+
+    async def process_url(self, url: str, rewrite: bool = True, strategy: RewriteStrategy | str | None = None, rewrite_config: RewriteConfig | None = None, seo: bool = False, limit: int | None = None) -> list[Article]:
+        """
+        处理单个RSS URL
+
+        参数：
+            url: RSS URL
+            rewrite: 是否进行改写
+            rewrite_config: 改写配置
+
+        返回：
+            Article 对象列表（最多 limit 篇）
+        """
+        logger.info(f"Processing URL: {url}")
+
+        # 创建RSS源（传入代理配置）
+        source_config = SourceConfig(
+            id=str(uuid.uuid4()),
+            name="custom_rss",
+            source_type="rss",
+            config={"url": url}
+        )
+        source = RSSCollector(url=url, name="custom_rss", proxy=self.proxy)
+
+        # 采集
+        result = await source.collect_async()
+        if not result.get("success") or not result.get("data"):
+            logger.error(f"No content collected from {url}")
+            return []
+
+        articles = []
+        items = result["data"][:limit] if limit else result["data"]
+        
+        filtered_count = {"sensitive": 0, "dedup": 0}
+        
+        for content in items:
+            logger.info(f"Collected: {content.title}")
+
+            # === 过滤步骤 ===
+            should_block, reason = await self._apply_filters(content)
+            if should_block:
+                if "敏感词" in reason:
+                    filtered_count["sensitive"] += 1
+                else:
+                    filtered_count["dedup"] += 1
+                continue
+
+            # 改写
+            if rewrite and self.rewrite_processor:
+                _strat = strategy if isinstance(strategy, RewriteStrategy) else RewriteStrategy(strategy or "rewrite")
+                _rewrite_config = rewrite_config or RewriteConfig(
+                    strategy=_strat,
+                    min_word_count=500,
+                    max_word_count=5000,
+                    target_word_count=3000
+                )
+                rewrite_result = await self.rewrite_processor.rewrite(content, _rewrite_config)
+
+                if rewrite_result.success:
+                    metadata = rewrite_result.metadata.copy() if rewrite_result.metadata else {}
+                    metadata['original_content'] = content.content
+                    metadata['original_title'] = content.title
+                    metadata['original_author'] = getattr(content, 'author', '') or ''
+                    article = Article(
+                        id=getattr(rewrite_result.original_content, 'id', None) if rewrite_result.original_content else str(uuid.uuid4()),
+                        title=rewrite_result.title or content.title,
+                        original_title=content.title,
+                        source=getattr(content, 'source_id', '') or content.source or '',
+                        source_url=content.url if hasattr(content, 'url') else '',
+                        author=rewrite_result.original_content.author if rewrite_result.original_content else "",
+                        published_at=content.published_at,
+                        content=rewrite_result.rewritten_content,
+                        summary=rewrite_result.summary,
+                        word_count=len(rewrite_result.rewritten_content),
+                        metadata=metadata
+                    )
+
+                    if seo:
+                        try:
+                            async with SEOProcessor(self.config) as seo_proc:
+                                seo_result = await seo_proc.optimize(content)
+                                if seo_result.success:
+                                    article.tags = seo_result.optimized_tags
+                                    article.metadata["seo_keywords"] = seo_result.keywords
+                                    article.metadata["seo_description"] = seo_result.meta_description
+                                    article.metadata["seo_title"] = seo_result.meta_title
+                        except Exception as e:
+                            logger.warning(f"SEO failed: {e}")
+
+                    articles.append(article)
+                else:
+                    logger.error(f"Rewrite failed: {rewrite_result.error}")
+                    articles.append(Article.from_content(content))
+            else:
+                articles.append(Article(
+                    id=content.id if hasattr(content, 'id') and content.id else str(uuid.uuid4()),
+                    title=content.title,
+                    content=content.content,
+                    source=content.source_id if hasattr(content, 'source_id') else getattr(content, 'name', '') or '',
+                    source_url=content.url if hasattr(content, 'url') else '',
+                    published_at=getattr(content, 'published_at', None),
+                    author=getattr(content, 'author', None) or getattr(content, 'name', None) or '',
+                ))
+
+        logger.info(f"[Pipeline] 过滤统计 - 敏感词: {filtered_count['sensitive']}, 去重: {filtered_count['dedup']}, 通过: {len(articles)}")
+        return articles
+
+    async def process_all_sources(
+        self,
+        rewrite: bool = True,
+        translate: bool = False,
+        target_language: str | None = None,
+        seo: bool = False,
+        formats: list[str] | None = None,
+        limit_per_source: int | None = None,
+        progress_callback: Optional[Callable] = None,
+        # ⚡ 断点续跑参数
+        task_store: TaskStore | None = None,
+        task_id: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        批量采集 config.yaml 中所有已启用的数据源
+
+        支持的源类型（全部从 config.yaml sources 读取）：
+            rss, youtube, twitter, tiktok, douyin, xiaohongshu, wechat, sitemap, api
+
+        网络错误时自动跳过，不中断流程。
+
+        参数：
+            rewrite: 是否改写
+            translate: 是否翻译
+            target_language: 目标语言（如 EN / JA）
+            formats: 导出格式列表
+            limit_per_source: 每个源最大采集数
+            task_store: TaskStore 实例（启用断点续跑）
+            task_id: 任务 ID（需与 task_store 同时提供）
+
+        返回：
+            {
+                "articles": [...],        # 成功处理的 Article 列表
+                "source_results": [...],   # 每个源的采集结果
+                "summary": {               # 汇总
+                    "total_sources": 10,
+                    "success": 7,
+                    "skipped": 3,
+                    "total_articles": 25,
+                }
+            }
+        """
+        import time
+        start = time.time()
+        all_articles: list[Article] = []
+        source_results: list[dict] = []
+        total_skipped = 0
+        total_filtered = {"sensitive": 0, "dedup": 0}
+
+        # --- 阶段 0: 初始化（立即报告 5%）---
+        if progress_callback:
+            await progress_callback(0, 1, "🔧 初始化流水线（加载配置、过滤器、通知器）...", 5)
+
+        # 初始化翻译器（如果需要）
+        translator = None
+        translation_lang = None
+        if translate and self.translation_config.get("enabled", False):
+            if progress_callback:
+                await progress_callback(0, 1, "🔧 初始化翻译器...", 8)
+            lang_code = target_language or self.translation_config.get("default_language", "EN")
+            try:
+                translation_lang = TranslationLanguage(lang_code)
+            except ValueError:
+                logger.warning(f"不支持的翻译语言: {lang_code}，跳过翻译")
+                translate = False
+            else:
+                translator = TranslatorProcessor(self.config)
+
+        # SEO processor (lazy init)
+        seo_processor = None
+        if seo:
+            if progress_callback:
+                await progress_callback(0, 1, "🔧 初始化 SEO 优化器...", 10)
+            seo_processor = SEOProcessor(self.config)
+            await seo_processor.__aenter__()
+
+        # 各源配置映射
+        source_configs_map = {
+            "rss": self._parse_rss_sources,
+            "youtube": self._parse_single_config,
+            "twitter": self._parse_single_config,
+            "tiktok": self._parse_single_config,
+            "douyin": self._parse_single_config,
+            "douyin_hot": self._parse_single_config,
+            "wangyi": self._parse_single_config,
+            "weibo_hot": self._parse_single_config,
+            "xiaohongshu": self._parse_single_config,
+            "wechat": self._parse_single_config,
+            "sitemap": self._parse_single_config,
+            "api": self._parse_single_config,
+        }
+
+        # 计算总源数（用于进度计算）
+        total_sources = 0
+        for source_type, parse_fn in source_configs_map.items():
+            entries = parse_fn(source_type)
+            if entries:
+                total_sources += len(entries)
+
+        # --- 阶段 1: 扫描完成，准备采集（15%）---
+        if progress_callback:
+            msg = f"📡 扫描完成，准备采集 {total_sources} 个数据源..."
+            await progress_callback(0, 1, msg, min(15, 100 if total_sources == 0 else 15))
+
+        current_source = 0
+
+        for source_type, parse_fn in source_configs_map.items():
+            entries = parse_fn(source_type)
+            print(f"[DEBUG] process_all: {source_type} -> {len(entries) if entries else 0} entries")
+            if not entries:
+                continue
+
+            for entry in entries:
+                current_source += 1
+                entry_name = entry.get("name", source_type)
+                
+                # 计算当前源的基准进度（避免 0% 卡太久）
+                # 每个源分配 80% 的剩余进度空间（15%~95%），留 5% 给汇总
+                base_progress = 15 + int((current_source - 1) / max(total_sources, 1) * 80)
+                step_range = max(1, int(80 / max(total_sources, 1)))  # 每个源的进度跨度
+                
+                # --- 子步骤 1: 初始化采集器 ---
+                if progress_callback:
+                    await progress_callback(current_source, total_sources,
+                        f"📡 [{current_source}/{total_sources}] 正在连接 {entry_name}...",
+                        base_progress)
+                
+                logger.info(f"[Pipeline] 采集源: {entry_name} ({source_type})")
+                entry_name = entry.get("name", source_type)
+                logger.info(f"[Pipeline] 采集源: {entry_name} ({source_type})")
+
+                # Fix: filter invalid params, map max_items->max_results
+                collect_kwargs = {k: v for k, v in entry.items() if k != 'name'}
+                if 'max_items' in collect_kwargs:
+                    collect_kwargs['max_results'] = collect_kwargs.pop('max_items')
+
+                try:
+                    collector = get_collector(
+                        source_type,
+                        config=entry,
+                        proxy=self.proxy,
+                        timeout=self.http_config.get("timeout", 30),
+                    )
+                    
+                    # Fix: Inject limit_per_source into collect_kwargs (use max_results to be consistent)
+                    if limit_per_source:
+                        collect_kwargs['max_results'] = limit_per_source
+                    
+                    # --- 子步骤 2: 执行采集 ---
+                    if progress_callback:
+                        await progress_callback(current_source, total_sources,
+                            f"🔍 [{current_source}/{total_sources}] 正在从 {entry_name} 抓取内容...",
+                            base_progress + step_range // 4)
+                    
+                    result: SourceResult = await collector.collect(**collect_kwargs)
+                    logger.info(f'[process_source] {entry_name}: success={result.success}, collected={result.collected_count}, data_len={len(result.data) if result.data else 0}')
+
+                    if not result.data:
+                        logger.warning(f"[{entry_name}] 采集结果为空")
+                        source_results.append({
+                            "source_name": entry_name,
+                            "source_type": source_type,
+                            "success": False,
+                            "collected": 0,
+                            "skipped": 1,
+                            "error": "采集结果为空",
+                            "duration": 0,
+                        })
+                        if progress_callback:
+                            progress = base_progress + step_range
+                            await progress_callback(current_source, total_sources,
+                                f"⚠️ [{current_source}/{total_sources}] {entry_name} 无内容返回",
+                                progress)
+                        continue
+
+                    # --- 子步骤 3: 处理文章（过滤+改写+翻译+SEO+导出）---
+                    # 采集成功，转换为 Article
+                    source_article_count = 0
+                    total_items = len(result.data)
+                    for idx, item_data in enumerate(result.data):
+                        if limit_per_source and source_article_count >= limit_per_source:
+                            break
+                        source_article_count += 1
+                        
+                        # 每处理 1/4 的文章更新一次进度
+                        item_progress = base_progress + step_range // 4 + int((idx / max(total_items, 1)) * (step_range * 3 // 4))
+                        
+                        # 创建 Content 对象用于过滤
+                        content = Content(
+                            id=str(uuid.uuid4()),
+                            title=item_data.get("title", ""),
+                            content=item_data.get("content", ""),
+                            source_type=source_type,
+                            source_id=entry_name,
+                            url=item_data.get("url", ""),
+                            author=item_data.get("author", ""),
+                            published_at=item_data.get("published_at"),
+                            summary=item_data.get("summary", ""),
+                        )
+                        
+                        # === 过滤步骤 ===
+                        should_block, reason = await self._apply_filters(content)
+                        if should_block:
+                            if "敏感词" in reason:
+                                total_filtered["sensitive"] += 1
+                            else:
+                                total_filtered["dedup"] += 1
+                            if progress_callback and idx % max(1, total_items // 4) == 0:
+                                await progress_callback(current_source, total_sources,
+                                    f"🚫 [{current_source}/{total_sources}] {entry_name}: 过滤 {reason} ({idx+1}/{total_items})",
+                                    item_progress)
+                            continue
+
+                        article = Article(
+                            id=content.id,
+                            title=content.title,
+                            content=content.content,
+                            source=content.source_type,
+                            source_url=content.url,
+                            author=content.author,
+                            published_at=content.published_at,
+                            summary=content.summary,
+                            word_count=len(content.content),
+                        )
+
+                        # 改写（含语言检测 + 自动翻译）
+                        if rewrite and self.rewrite_processor and article.word_count > 0:
+                            # 默认不翻译
+                            rewrite_cfg = RewriteConfig()
+                            
+                            try:
+                                # --- Feature 17: 语言检测 ---
+                                detector = LanguageDetector(self.llm_config)
+                                lang_result = await detector.detect(content.content, title=content.title)
+                                
+                                # 如果需要翻译，修改 config
+                                if lang_result.needs_translation():
+                                    rewrite_cfg.translate_to = "zh"
+                                    rewrite_cfg.source_language = lang_result.language
+                                    rewrite_cfg.source_language_name = lang_result.language_name
+                                    logger.info(f"[Pipeline] 检测到 {lang_result.language_name}，将翻译为中文后改写")
+                                    
+                            except Exception as e:
+                                logger.warning(f"语言检测失败（{article.title}）: {e}，将直接改写（不翻译）")
+                            
+                            # 调用改写（传入 config）
+                            try:
+                                rewrite_result = await self.rewrite_processor.rewrite(content, rewrite_cfg)
+                                if rewrite_result.success:
+                                    article.content = rewrite_result.rewritten_content
+                                    article.word_count = len(rewrite_result.rewritten_content)
+                                    article.title = rewrite_result.title or article.title
+                                if progress_callback and idx % max(1, total_items // 4) == 0:
+                                    await progress_callback(current_source, total_sources,
+                                        f"✍️ [{current_source}/{total_sources}] {entry_name}: 改写中 ({idx+1}/{total_items})",
+                                        item_progress)
+                            except Exception as e:
+                                logger.warning(f"改写失败（{article.title}）: {e}")
+
+                        # 翻译
+                        if translate and translator and translation_lang and article.word_count > 0:
+                            try:
+                                trans_config = TranslationConfig(
+                                    target_language=translation_lang,
+                                    tone=self.translation_config.get("tone", "casual"),
+                                )
+                                trans_result = await translator.translate(content, trans_config)
+                                if trans_result.success:
+                                    article.title = f"{article.title} ({translation_lang.value})"
+                                    article.content = trans_result.translated_content
+                                    article.word_count = len(trans_result.translated_content)
+                                if progress_callback and idx % max(1, total_items // 4) == 0:
+                                    await progress_callback(current_source, total_sources,
+                                        f"🌐 [{current_source}/{total_sources}] {entry_name}: 翻译中 ({idx+1}/{total_items})",
+                                        item_progress)
+                            except Exception as e:
+                                logger.warning(f"翻译失败（{article.title}）: {e}")
+
+                        # SEO 优化
+                        if seo and seo_processor and article.word_count > 0:
+                            try:
+                                seo_result = await seo_processor.optimize(content)
+                                if seo_result.success:
+                                    article.tags = seo_result.optimized_tags
+                                    article.metadata["seo_keywords"] = seo_result.keywords
+                                    article.metadata["seo_description"] = seo_result.meta_description
+                                    article.metadata["seo_title"] = seo_result.meta_title
+                                if progress_callback and idx % max(1, total_items // 4) == 0:
+                                    await progress_callback(current_source, total_sources,
+                                        f"🔍 [{current_source}/{total_sources}] {entry_name}: SEO 优化 ({idx+1}/{total_items})",
+                                        item_progress)
+                            except Exception as e:
+                                logger.warning(f"SEO failed ({article.title}): {e}")
+
+                        all_articles.append(article)
+
+                        # 导出
+                        if formats:
+                            for fmt in formats:
+                                try:
+                                    self.exporter.export(article, fmt)
+                                except Exception as e:
+                                    logger.error(f"导出失败 ({fmt}): {e}")
+
+                    # --- 当前源完成 ---
+                    # 成功：追加到 source_results
+                    source_results.append({
+                        "source_name": entry_name,
+                        "source_type": source_type,
+                        "success": result.success,
+                        "collected": result.collected_count,
+                        "skipped": result.skipped_count,
+                        "error": result.error,
+                        "duration": result.duration,
+                    })
+                    print(f"  [OK] {entry_name}: 采集 {result.collected_count} 篇")
+                    
+                    # 报告进度（完成当前源）
+                    if progress_callback:
+                        progress = base_progress + step_range
+                        msg = f"✅ [{current_source}/{total_sources}] {entry_name} 完成 — 采集 {result.collected_count} 篇"
+                        if result.collected_count == 0:
+                            msg = f"⚠️ [{current_source}/{total_sources}] {entry_name} 无内容返回"
+                        await progress_callback(current_source, total_sources, msg, progress)
+
+                except Exception as e:
+                    total_skipped += 1
+                    error_msg = f"[{entry_name}] 初始化/采集异常: {e}"
+                    logger.warning(error_msg)
+                    print(f"  [SKIP] {error_msg}")
+                    source_results.append({
+                        "source_name": entry_name,
+                        "source_type": source_type,
+                        "success": False,
+                        "collected": 0,
+                        "skipped": 1,
+                        "error": error_msg,
+                        "duration": 0,
+                    })
+                    
+                    # 报告进度（跳过当前源）
+                    if progress_callback:
+                        progress = base_progress + step_range
+                        await progress_callback(current_source, total_sources,
+                            f"❌ [{current_source}/{total_sources}] {entry_name} 失败: {str(e)[:60]}",
+                            progress)
+
+        elapsed = time.time() - start
+        success_sources = sum(1 for r in source_results if r["success"])
+
+        # Cleanup SEO processor
+        if seo_processor:
+            await seo_processor.__a_exit__(None, None, None)
+
+        # --- 最终汇总进度（95%→100%）---
+        if progress_callback:
+            await progress_callback(total_sources, total_sources,
+                f"📊 正在汇总结果（{len(all_articles)} 篇文章，{elapsed:.1f}s）...",
+                95)
+            await progress_callback(total_sources, total_sources,
+                f"✅ 全部完成！成功 {success_sources}/{len(source_results)} 个源，共 {len(all_articles)} 篇文章",
+                100)
+
+        print(f"\n{'=' * 60}")
+        print(f"汇总")
+        print(f"{'=' * 60}")
+        print(f"  数据源总数: {len(source_results)}")
+        print(f"  成功: {success_sources}")
+        print(f"  跳过: {total_skipped}")
+        print(f"  过滤 - 敏感词: {total_filtered['sensitive']}, 去重: {total_filtered['dedup']}")
+        print(f"  文章总数: {len(all_articles)}")
+        print(f"  耗时: {elapsed:.1f}s")
+        print(f"{'=' * 60}")
+
+        # 发送采集完成通知
+        failed_names = [r["source_name"] for r in source_results if not r["success"]]
+        notify_level = "success" if total_skipped == 0 else ("warning" if total_skipped < success_sources else "error")
+        notify_body_lines = [
+            f"数据源: {len(source_results)} 个（成功 {success_sources}，跳过 {total_skipped}）",
+            f"文章: {len(all_articles)} 篇",
+            f"过滤: 敏感词 {total_filtered['sensitive']} 篇，去重 {total_filtered['dedup']} 篇",
+            f"耗时: {elapsed:.1f}s",
+        ]
+        if failed_names:
+            notify_body_lines.append(f"失败源: {', '.join(failed_names)}")
+        await self._notify(
+            title="采集任务完成",
+            body="\n".join(notify_body_lines),
+            level=notify_level,
+            articles_count=len(all_articles),
+            duration=elapsed,
+            data={"failed_sources": failed_names, "filtered": total_filtered}
+        )
+
+        return {
+            "articles": all_articles,
+            "source_results": source_results,
+            "summary": {
+                "total_sources": len(source_results),
+                "success": success_sources,
+                "skipped": total_skipped,
+                "filtered": total_filtered,
+                "total_articles": len(all_articles),
+                "elapsed": elapsed,
+            }
+        }
+
+    # ============================================================
+    # ⚡ 断点续跑: process_all_sources 的 checkpoint 包装
+    # ============================================================
+
+    async def process_all_sources_with_checkpoint(
+        self,
+        task_name: str,
+        rewrite: bool = True,
+        translate: bool = False,
+        target_language: str | None = None,
+        seo: bool = False,
+        formats: list[str] | None = None,
+        limit_per_source: int | None = None,
+        progress_callback: Optional[Callable] = None,
+        scheduler_job: str = "",
+    ) -> dict[str, Any]:
+        """
+        带断点续跑的 process_all_sources 包装器。
+
+        1. 创建任务记录
+        2. 调用 process_all_sources（传递 task_store + task_id）
+        3. 标记完成/失败
+
+        Args:
+            task_name: 任务名称
+            scheduler_job: 调度器任务名（用于关联）
+            其他参数同 process_all_sources
+        """
+        import json
+
+        task_store = self._checkpoint_store
+        if task_store is None:
+            logger.warning("[checkpoint] 未配置 TaskStore，降级为无 checkpoint")
+            return await self.process_all_sources(
+                rewrite=rewrite, translate=translate,
+                target_language=target_language, seo=seo,
+                formats=formats, limit_per_source=limit_per_source,
+                progress_callback=progress_callback,
+            )
+
+        task_id = task_store.create_task(
+            name=task_name,
+            source_type="batch",
+            scheduler_job=scheduler_job,
+        )
+
+        if not mark_task_active(task_id):
+            return {"articles": [], "source_results": [], "summary": {"error": "任务重复执行"}}
+
+        try:
+            task_store.update_task_status(task_id, TaskStatus.RUNNING)
+            task_store.log_checkpoint(task_id, "process_all_sources", status="started")
+
+            result = await self.process_all_sources(
+                rewrite=rewrite, translate=translate,
+                target_language=target_language, seo=seo,
+                formats=formats, limit_per_source=limit_per_source,
+                progress_callback=progress_callback,
+                task_store=task_store,
+                task_id=task_id,
+            )
+
+            total = result.get("summary", {}).get("total_articles", 0)
+            task_store.update_task_status(
+                task_id, TaskStatus.COMPLETED,
+                progress=100, processed_items=total,
+            )
+            task_store.log_checkpoint(
+                task_id, "process_all_sources", status="completed",
+                message=f"{total} articles",
+            )
+
+            return result
+        except Exception as e:
+            logger.error(f"[checkpoint] 任务失败: {task_name}: {e}")
+            task_store.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
+            raise
+        finally:
+            mark_task_inactive(task_id)
+
+    async def process_source(
+        self,
+        source_type: str,
+        rewrite: bool = True,
+        translate: bool = False,
+        target_language: str | None = None,
+        formats: list[str] | None = None,
+        limit_per_source: int | None = None,
+        progress_callback: Optional[Callable] = None,
+    ) -> dict[str, Any]:
+        """
+        采集单个数据源（用于 YouTube 等独立采集按钮）
+
+        参数：
+            source_type: 源类型（如 youtube, twitter 等）
+            rewrite: 是否改写
+            translate: 是否翻译
+            target_language: 目标语言
+            formats: 导出格式列表
+            limit_per_source: 最大采集数
+
+        返回：
+            {
+                "articles": [...],
+                "summary": {
+                    "total_sources": 1,
+                    "success": 1,
+                    "total_articles": 5,
+                }
+            }
+        """
+        import time
+        all_articles: list[Article] = []
+        source_results: list[dict] = []
+        start = time.time()
+
+        # 翻译器
+        translator = None
+        translation_lang = None
+        if translate and self.translation_config.get("enabled", False):
+            lang_code = target_language or self.translation_config.get("default_language", "EN")
+            translation_lang = TranslationLanguage(lang_code)
+            translator = TranslatorProcessor(self.config)
+
+        # 获取解析器
+        source_configs_map = {
+            "rss": self._parse_rss_sources,
+            "youtube": self._parse_single_config,
+            "twitter": self._parse_single_config,
+            "tiktok": self._parse_single_config,
+            "douyin": self._parse_single_config,
+            "xiaohongshu": self._parse_single_config,
+            "wechat": self._parse_single_config,
+            "sitemap": self._parse_single_config,
+            "api": self._parse_single_config,
+            # 热点源（内置采集器，无需配置）
+            "wangyi": self._parse_single_config,
+            "weibo_hot": self._parse_single_config,
+            "douyin_hot": self._parse_single_config,
+        }
+
+        parse_fn = source_configs_map.get(source_type)
+        if not parse_fn:
+            return {"articles": [], "summary": {"total_sources": 0, "success": 0, "total_articles": 0}}
+
+        entries = parse_fn(source_type)
+        if not entries:
+            return {"articles": [], "summary": {"total_sources": 0, "success": 0, "total_articles": 0, "message": f"未配置 {source_type} 源"}}
+
+        total_entries = len(entries)
+        current_entry = 0
+
+        # --- 初始化进度 ---
+        if progress_callback:
+            await progress_callback(0, 1, f"🔧 初始化 {source_type} 采集器...", 5)
+
+        for entry in entries:
+            current_entry += 1
+            entry_name = entry.get("name", source_type)
+            
+            # 计算基准进度（10%~90%）
+            base_progress = 10 + int((current_entry - 1) / max(total_entries, 1) * 80)
+            step_range = max(1, int(80 / max(total_entries, 1)))
+            
+            # --- 子步骤: 连接 ---
+            if progress_callback:
+                await progress_callback(current_entry, total_entries,
+                    f"📡 [{current_entry}/{total_entries}] 正在连接 {entry_name}...",
+                    base_progress)
+            
+            try:
+                collector = get_collector(
+                    source_type,
+                    config=entry,
+                    proxy=self.proxy,
+                    timeout=self.http_config.get("timeout", 30),
+                )
+                
+                # Fix: filter invalid params, map max_items->max_results
+                collect_kwargs = {k: v for k, v in entry.items() if k != 'name'}
+                if 'max_items' in collect_kwargs:
+                    collect_kwargs['max_results'] = collect_kwargs.pop('max_items')
+                
+                # Fix: Inject limit_per_source into collect_kwargs for process_contents()
+                if limit_per_source:
+                    collect_kwargs['max_results'] = limit_per_source
+                
+                # --- 子步骤: 采集 ---
+                if progress_callback:
+                    await progress_callback(current_entry, total_entries,
+                        f"🔍 [{current_entry}/{total_entries}] 正在从 {entry_name} 抓取内容...",
+                        base_progress + step_range // 4)
+                
+                result: SourceResult = await collector.collect(**collect_kwargs)
+                logger.info(f'[process_source] {entry_name}: success={result.success}, collected={result.collected_count}, data_len={len(result.data) if result.data else 0}')
+
+                if not result.data:
+                    logger.warning(f"[{entry_name}] 采集结果为空")
+                    source_results.append({
+                        "source_name": entry_name,
+                        "success": False,
+                        "collected": 0,
+                        "error": "采集结果为空",
+                    })
+                    if progress_callback:
+                        await progress_callback(current_entry, total_entries,
+                            f"⚠️ [{current_entry}/{total_entries}] {entry_name} 无内容返回",
+                            base_progress + step_range)
+                    continue
+
+                source_results.append({
+                    "source_name": entry_name,
+                    "success": result.success,
+                    "collected": result.collected_count,
+                    "error": result.error,
+                })
+                
+                # --- 子步骤: 处理文章 ---
+                if progress_callback:
+                    await progress_callback(current_entry, total_entries,
+                        f"✍️ [{current_entry}/{total_entries}] {entry_name}: 处理 {result.collected_count} 篇文章...",
+                        base_progress + step_range // 2)
+                
+                # 报告进度（完成当前条目）
+                if progress_callback:
+                    progress = base_progress + step_range
+                    await progress_callback(current_entry, total_entries, f"完成采集: {entry_name}", progress)
+                
+                if result.success and result.data:
+                    # result.data 是 dict 列表，需要转为 Content 对象
+                    from content_aggregator.models import Content
+                    contents = []
+                    for d in (result.data[:limit_per_source] if limit_per_source else result.data):
+                        content = Content(
+                            id=d.get("id", str(uuid.uuid4())),
+                            source_id=source_type,
+                            source_type=source_type,
+                            url=d.get("url", ""),
+                            title=d.get("title", ""),
+                            content=d.get("content", ""),
+                            author=d.get("author", ""),
+                            published_at=d.get("published_at"),
+                            summary=d.get("summary", ""),
+                            metadata=d.get("metadata", {}),
+                        )
+                        contents.append(content)
+                    
+                    # 过滤和改写由 process_contents 统一处理
+                    # 计算 process_contents 的进度范围（从 base_progress + step_range // 2 开始，到 base_progress + step_range 结束）
+                    process_base = base_progress + step_range // 2
+                    process_range = step_range // 2
+                    articles = await self.process_contents(
+                        contents,
+                        rewrite=rewrite,
+                        progress_callback=progress_callback,
+                        base_progress=process_base,
+                        progress_range=process_range
+                    )
+                    logger.info(f'[process_source] {entry_name}: {len(contents)} contents -> {len(articles)} articles')
+                    all_articles.extend(articles)
+
+            except Exception as e:
+                logger.error(f"采集失败 [{entry_name}]: {e}")
+                source_results.append({"source_name": entry_name, "success": False, "error": str(e)})
+                
+                # 报告进度（跳过当前条目）
+                if progress_callback:
+                    progress = int(current_entry / total_entries * 100) if total_entries > 0 else 100
+                    await progress_callback(current_entry, total_entries, f"跳过: {entry_name}", progress)
+
+        elapsed = time.time() - start
+        success_sources = sum(1 for r in source_results if r.get("success"))
+        return {
+            "articles": all_articles,
+            "source_results": source_results,
+            "summary": {
+                "total_sources": len(source_results),
+                "success": success_sources,
+                "total_articles": len(all_articles),
+                "elapsed": elapsed,
+            }
+        }
+
+    def _parse_rss_sources(self, source_type: str) -> list[dict]:
+        """解析 RSS 源配置"""
+        sources = self.sources_config.get("rss", [])
+        entries = []
+        for src in sources:
+            if not src.get("enabled", True):
+                continue
+            entries.append({"name": src.get("name", "rss"), "url": src.get("url"), "max_items": 20})
+        return entries
+
+    def _parse_single_config(self, source_type: str) -> list[dict]:
+        """解析单配置数据源（youtube/twitter/douyin 等）"""
+        source_cfg = self.sources_config.get(source_type, {})
+        entries = []
+
+        # YouTube 搜索关键词
+        if source_type == "youtube":
+            search_queries = source_cfg.get("search_queries", [])
+            if search_queries:
+                search_order = source_cfg.get("search_order", "relevance")
+                # Fix: 优先级 order: dashboard limit > config search_limit > 默认 20
+                # 这样 dashboard 传的 limit_per_source 能正确生效
+                entry_limit = source_cfg.get("limit") or source_cfg.get("limit_per_source")
+                search_limit = entry_limit if entry_limit else source_cfg.get("search_limit", 20)
+                for query in search_queries:
+                    if isinstance(query, str) and query.strip():
+                        entry = dict(source_cfg)
+                        entry["search_query"] = query.strip()
+                        entry["order"] = search_order
+                        entry["max_results"] = search_limit
+                        entry["name"] = f"YouTube搜索: {query.strip()}"
+                        entry["max_items"] = search_limit
+                        entries.append(entry)
+
+        # 网易新闻频道列表
+        if source_type == "wangyi":
+            channels = source_cfg.get("channels", ["news", "ent", "tech"])
+            limit = source_cfg.get("limit", 10)
+            for ch in channels:
+                if isinstance(ch, str) and ch.strip():
+                    entry = dict(source_cfg)
+                    entry["channels"] = [ch.strip()]
+                    entry["name"] = f"网易{ch.strip()}"
+                    entry["max_items"] = limit
+                    entries.append(entry)
+            return entries  # 网易特殊处理，不进入通用 list_key 循环
+
+        # 抖音热点/微博热点：直接作为单个源（无子列表）
+        if source_type in ("douyin_hot", "weibo_hot"):
+            if source_cfg.get("enabled", True):
+                entry = dict(source_cfg)
+                entry["name"] = {"douyin_hot": "抖音热点榜", "weibo_hot": "微博热点"}.get(source_type, source_type)
+                entry["max_items"] = source_cfg.get("limit", 20)
+                entries.append(entry)
+                return entries
+            return []
+
+        # 频道/用户/账号列表
+        for list_key in ["channels", "users", "accounts", "sites", "endpoints"]:
+            items = source_cfg.get(list_key, [])
+            if items:
+                for item in items:
+                    if isinstance(item, str):
+                        entry = dict(source_cfg)
+                        # 频道 ID 字符串 → channel_id 参数
+                        if list_key == "channels":
+                            entry["channel_id"] = item
+                        else:
+                            entry["base_url"] = item
+                        entry["name"] = item
+                        entry["max_items"] = 20
+                        entries.append(entry)
+                        continue
+
+                    entry = dict(source_cfg)  # 复制全局配置（api_key/cookie 等）
+                    entry.update(item)  # 用单项配置覆盖
+                    entry["name"] = item.get("name", source_type)
+                    entry["max_items"] = item.get("max_items", 20)
+                    entries.append(entry)
+
+        # 如果有 entries 直接返回
+        if entries:
+            return entries
+
+        # 如果有 api_url 或 base_url 等直接字段，视为单个源
+        if source_cfg.get("api_url") or source_cfg.get("base_url"):
+            return [{**source_cfg, "name": source_cfg.get("name", source_type), "max_items": 20}]
+
+        return []
+
+    async def process_contents(
+        self,
+        contents: list[Content],
+        rewrite: bool = True,
+        progress_callback: Optional[Callable] = None,
+        base_progress: int = 0,
+        progress_range: int = 100,
+        # ⚡ 断点续跑参数
+        task_store: TaskStore | None = None,
+        task_id: str | None = None,
+        item_ids: list[str] | None = None,
+        skip_ids: set[str] | None = None,
+    ) -> list[Article]:
+        """
+        处理内容列表
+
+        参数：
+            contents: Content 对象列表
+            rewrite: 是否进行改写
+            progress_callback: 进度回调函数
+            base_progress: 进度基准值（整体进度的起始点，默认 0）
+            progress_range: 进度范围（整体进度的跨度，默认 100）
+            task_store: TaskStore 实例（启用断点续跑）
+            task_id: 任务 ID（需与 task_store 同时提供）
+            item_ids: 与 contents 一一对应的 item_id 列表（可只提供部分）
+            skip_ids: 已完成的 item_id 集合（跳过这些）
+
+        返回：
+            Article 对象列表
+        """
+        has_checkpoint = task_store is not None and task_id is not None
+        articles = []
+        total = len(contents)
+        current = 0
+
+        for idx, content in enumerate(contents):
+            current += 1
+            item_id = (item_ids or [None])[idx] if item_ids and idx < len(item_ids) else None
+
+            # ⚡ 断点: 跳过已完成的 item
+            if skip_ids and item_id and item_id in skip_ids:
+                logger.debug(f"[process_contents] 跳过已完成的 item: {content.title[:40]}")
+                # 从 store 获取已处理结果
+                if has_checkpoint and item_id:
+                    stored = task_store.get_items_by_task(task_id)
+                    for s in stored:
+                        if s.id == item_id and s.processed_data:
+                            try:
+                                data = json.loads(s.processed_data)
+                                if data.get("article"):
+                                    article = Article(**data["article"])
+                                    articles.append(article)
+                            except Exception:
+                                pass
+                continue
+
+            # ⚡ 断点: 检查取消
+            if has_checkpoint and is_task_cancelled(task_id):
+                logger.warning(f"[process_contents] 任务 {task_id} 已取消")
+                raise TaskCancelledError(f"任务 {task_id} 已取消")
+
+            try:
+                # 报告进度（开始处理当前文章）
+                if progress_callback:
+                    progress = base_progress + int((current - 1) / max(total, 1) * progress_range)
+                    await progress_callback(current, total, f"🔄 改写第 {current}/{total} 篇: {content.title[:20]}", progress)
+
+                # === 过滤步骤 ===
+                should_block, reason = await self._apply_filters(content)
+                if should_block:
+                    logger.info(f"[process_contents] 过滤跳过: {content.title[:40]} ({reason})")
+                    if has_checkpoint and item_id:
+                        # 过滤跳过的 item 标记为 completed（跳过版的 completed）
+                        task_store.update_item_stage(item_id, ItemStage.COMPLETED)
+                    continue
+
+                # ⚡ 断点: 保存过滤通过的 checkpoint
+                if has_checkpoint and item_id:
+                    task_store.update_item_stage(item_id, ItemStage.FILTERED)
+
+                # 改写
+                if rewrite and self.rewrite_processor:
+                    logger.info(f"[process_contents] Rewriting: {content.title[:60]}")
+
+                    # ⚡ 断点: 标记改写中
+                    if has_checkpoint and item_id:
+                        task_store.update_item_stage(item_id, ItemStage.REWRITING)
+
+                    # 语言检测（自动翻译非中文内容）
+                    detector = LanguageDetector(self.llm_config)
+                    lang_result = await detector.detect(content.content, content.title or "")
+                    logger.info(f"[process_contents] Language detected: {lang_result}")
+
+                    # 构建改写配置（含翻译设置）
+                    rewrite_cfg = RewriteConfig(
+                        strategy=RewriteStrategy.REWRITE,
+                        translate_to="zh" if lang_result.needs_translation() else None,
+                        source_language=lang_result.language if lang_result.needs_translation() else None,
+                        source_language_name=lang_result.language_name if lang_result.needs_translation() else None,
+                    )
+
+                    # ⚠️ 不传递 progress_callback 给单篇 rewrite()
+                    rewrite_result = await self.rewrite_processor.rewrite(
+                        content, rewrite_config=rewrite_cfg, progress_callback=None
+                    )
+                    rewritten_text = rewrite_result.rewritten_content if rewrite_result.success else ""
+                    final_content = rewritten_text if rewritten_text else content.content
+                    metadata = (rewrite_result.metadata.copy() if rewrite_result.metadata else {}) if rewrite_result.success else {}
+                    metadata['original_content'] = content.content
+                    metadata['original_title'] = content.title
+                    metadata['original_author'] = content.author
+                    metadata['language_detected'] = lang_result.language
+                    metadata['language_name'] = lang_result.language_name
+                    metadata['translated_before_rewrite'] = lang_result.needs_translation()
+
+                    article = Article(
+                        id=str(uuid.uuid4()),
+                        title=rewrite_result.title or content.title if rewrite_result.success else content.title,
+                        original_title=content.title,
+                        source=content.source_id,
+                        source_url=content.url,
+                        author=content.author,
+                        published_at=content.published_at,
+                        content=final_content,
+                        summary=rewrite_result.summary if rewrite_result.success else "",
+                        word_count=len(final_content),
+                        metadata=metadata
+                    )
+                    articles.append(article)
+                    logger.info(f"[process_contents] Done: {content.title[:60]} -> {len(final_content)} chars")
+
+                    # ⚡ 断点: 保存改写完成 + 最终数据
+                    if has_checkpoint and item_id:
+                        processed_data = json.dumps({
+                            "article": {
+                                "id": article.id,
+                                "title": article.title,
+                                "original_title": article.original_title,
+                                "content": article.content,
+                                "summary": article.summary,
+                                "word_count": article.word_count,
+                            },
+                            "metadata": metadata,
+                        })
+                        task_store.update_item_stage(item_id, ItemStage.REWRITTEN, processed_data=processed_data)
+
+                    # 报告进度（完成当前文章）
+                    if progress_callback:
+                        progress = base_progress + int(current / max(total, 1) * progress_range)
+                        await progress_callback(current, total, f"✅ 已完成 {current}/{total} 篇: {content.title[:20]}", progress)
+
+                else:
+                    article = Article.from_content(content)
+                    articles.append(article)
+
+                # ⚡ 断点: 标记 item 完成
+                if has_checkpoint and item_id:
+                    task_store.update_item_stage(item_id, ItemStage.COMPLETED)
+
+                # ⚡ 断点: 更新任务进度
+                if has_checkpoint:
+                    task_store.update_task_item_counts(task_id)
+            except Exception as e:
+                logger.error(f"[process_contents] Error processing '{content.title[:60]}': {e}", exc_info=True)
+                # ⚡ 断点: 标记 item 失败
+                if has_checkpoint and item_id:
+                    task_store.update_item_stage(item_id, ItemStage.FAILED, error=str(e))
+                # fallback: 用原文直接创建文章
+                try:
+                    article = Article.from_content(content)
+                    articles.append(article)
+                except Exception:
+                    logger.error(f"[process_contents] Fallback also failed for '{content.title[:60]}'")
+
+        logger.info(f"[process_contents] Total: {len(contents)} contents -> {len(articles)} articles")
+        return articles
+
+    # ============================================================
+    # ⚡ 断点续跑: 创建 checkpoint 任务 + 添加 items + 恢复检测
+    # ============================================================
+
+    async def process_with_checkpoint(
+        self,
+        contents: list[Content],
+        task_name: str,
+        source_type: str = "",
+        source_config: dict | None = None,
+        rewrite: bool = True,
+        progress_callback: Optional[Callable] = None,
+        recover: bool = True,  # 是否检测并恢复中断任务
+    ) -> list[Article]:
+        """
+        带断点续跑的内容处理包装器。
+
+        1. 创建/检测任务（task_id）
+        2. 为每个 content 创建 item 并写入 TaskStore
+        3. 调用 process_contents（传递 task_store + task_id + item_ids）
+        4. 任务结束时更新状态
+
+        Args:
+            contents: Content 对象列表
+            task_name: 任务名称（同一名称会尝试恢复）
+            source_type: 源类型
+            source_config: 源配置（JSON 可序列化）
+            rewrite: 是否改写
+            progress_callback: 进度回调
+            recover: 是否尝试恢复中断任务
+
+        Returns:
+            Article 对象列表
+        """
+        task_store: TaskStore = getattr(self, "_checkpoint_store", None)
+        if task_store is None:
+            # 没有 TaskStore → 降级为普通 process_contents
+            logger.warning("[process_with_checkpoint] 未配置 TaskStore，降级为普通处理")
+            return await self.process_contents(contents, rewrite=rewrite, progress_callback=progress_callback)
+
+        # Step 1: 创建任务
+        import json
+        task_id = task_store.create_task(
+            name=task_name,
+            source_type=source_type,
+            source_config=source_config,
+        )
+
+        # 注册活跃标记（用于崩溃恢复检测）
+        if not mark_task_active(task_id):
+            logger.warning(f"[process_with_checkpoint] 任务重复执行: {task_id[:8]}")
+            return []
+
+        try:
+            # 标记运行中
+            task_store.update_task_status(task_id, TaskStatus.RUNNING, total_items=len(contents))
+
+            # Step 2: 添加 items
+            item_ids = []
+            skip_ids: set[str] = set()
+
+            for content in contents:
+                collected_data = json.dumps({
+                    "id": content.id,
+                    "source_id": content.source_id,
+                    "source_type": content.source_type,
+                    "url": content.url,
+                    "title": content.title,
+                    "content": content.content[:50000],  # 限制大小
+                    "author": content.author,
+                    "published_at": content.published_at.isoformat() if content.published_at else None,
+                    "summary": content.summary,
+                }, ensure_ascii=False)
+                item_id = task_store.add_item(
+                    task_id=task_id,
+                    source_url=content.url or "",
+                    title=content.title or "",
+                    collected_data=collected_data,
+                )
+                item_ids.append(item_id)
+
+            # Step 3: 正常处理
+            articles = await self.process_contents(
+                contents,
+                rewrite=rewrite,
+                progress_callback=progress_callback,
+                task_store=task_store,
+                task_id=task_id,
+                item_ids=item_ids,
+                skip_ids=skip_ids,
+            )
+
+            # Step 4: 标记完成
+            task_store.update_task_status(
+                task_id, TaskStatus.COMPLETED,
+                progress=100, processed_items=len(articles),
+            )
+            logger.info(f"[process_with_checkpoint] 任务完成: {task_name} ({len(articles)} articles)")
+
+            return articles
+
+        except TaskCancelledError:
+            task_store.update_task_status(task_id, TaskStatus.CANCELLED)
+            logger.info(f"[process_with_checkpoint] 任务已取消: {task_name}")
+            return []
+        except Exception as e:
+            logger.error(f"[process_with_checkpoint] 任务失败: {task_name}: {e}")
+            task_store.update_task_status(task_id, TaskStatus.FAILED, error=str(e))
+            raise
+        finally:
+            mark_task_inactive(task_id)
+
+    @staticmethod
+    def recover_interrupted_tasks(task_store: TaskStore) -> list[dict[str, Any]]:
+        """
+        检测并返回所有中断的任务（进程崩溃后启动时调用）。
+        从 Y2A-Auto task_manager.recover_interrupted_tasks_to_pending() 移植。
+
+        Returns:
+            每个中断任务的基本信息:
+            [
+                {
+                    "task_id": str,
+                    "name": str,
+                    "source_type": str,
+                    "progress": int,
+                    "total_items": int,
+                    "processed_items": int,
+                    "pending_items": int,  # 可恢复的 items 数
+                },
+                ...
+            ]
+        """
+        interrupted = task_store.get_interrupted_tasks()
+        results = []
+
+        for task in interrupted:
+            recovery = task_store.detect_and_prepare_recovery(task.id)
+            if recovery.get("recoverable"):
+                results.append({
+                    "task_id": task.id,
+                    "name": task.name,
+                    "source_type": task.source_type,
+                    "progress": task.progress,
+                    "total_items": recovery["total_items"],
+                    "processed_items": recovery["completed_items"],
+                    "pending_items": recovery["pending_items"],
+                })
+                # 标记为 pending 以便恢复
+                task_store.update_task_status(task.id, TaskStatus.PENDING,
+                    error=f"自动恢复: {recovery['pending_items']} items pending")
+
+        if results:
+            logger.info(f"[recover_interrupted_tasks] 发现 {len(results)} 个中断任务")
+
+        return results
+
+    async def process_and_export(
+        self,
+        url: str,
+        format_types: list[str] = None,
+        rewrite: bool = True
+    ) -> list[str]:
+        """
+        处理并导出
+
+        参数：
+            url: RSS URL
+            format_types: 导出格式列表
+            rewrite: 是否改写
+
+        返回：
+            导出文件路径列表
+        """
+        if format_types is None:
+            format_types = ["markdown", "html", "json"]
+
+        article = await self.process_url(url, rewrite)
+        if not article:
+            return []
+
+        paths = []
+        for fmt in format_types:
+            try:
+                path = self.exporter.export(article, fmt)
+                paths.append(path)
+            except Exception as e:
+                logger.error(f"Export failed ({fmt}): {e}")
+
+        return paths
+
+    def get_article(self, content: str, title: str = "", rewrite: bool = True) -> Article:
+        """
+        从文本内容创建 Article
+
+        参数：
+            content: 文章内容（文本或Markdown）
+            title: 文章标题
+            rewrite: 是否改写（注：需要 async 调用 rewrite 方法）
+
+        返回：
+            Article 对象
+
+        注意：
+            此方法同步返回，如果需要改写请使用 process_url
+        """
+        return Article(
+            id=str(uuid.uuid4()),
+            title=title or "Untitled",
+            content=content,
+            word_count=len(content),
+        )
+
+
+# ========================================================================
+# 便捷函数
+# ========================================================================
+
+async def process_rss(url: str, config: dict, format_types: list[str] = None) -> list[str]:
+    """
+    便捷函数：处理RSS并导出
+
+    参数：
+        url: RSS URL
+        config: 配置字典
+        format_types: 导出格式列表
+
+    返回：
+        导出文件路径列表
+    """
+    async with ContentPipeline(config) as pipeline:
+        return await pipeline.process_and_export(url, format_types)
+
+
+def quick_export(content: str, title: str, output_dir: str, format_type: str = "markdown") -> str:
+    """
+    便捷函数：快速导出文本内容
+
+    参数：
+        content: 文章内容
+        title: 文章标题
+        output_dir: 输出目录
+        format_type: 格式类型
+
+    返回：
+        文件路径
+    """
+    article = Article(
+        id=str(uuid.uuid4()),
+        title=title,
+        content=content,
+        word_count=len(content),
+    )
+    exporter = Exporter(output_dir)
+    return str(exporter.export(article, format_type))
