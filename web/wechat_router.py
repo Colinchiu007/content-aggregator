@@ -239,31 +239,38 @@ async def api_publish_article(
         # 2. 获取或生成 thumb_media_id
         thumb_media_id = None
         
-        # 如果提供了 cover_id，使用指定的封面
+        # 如果提供了 cover_id，使用指定的封面（优先级 P1：AI 生成 或 自定义上传）
         if cover_id:
+            # 先尝试从 config 中的 covers 列表查找（旧版传入机制）
             covers = cfg.get("covers", [])
             cover = next((c for c in covers if c.get("id") == cover_id), None)
+            cover_path = None
             if cover:
-                # 如果已经有 media_id，直接使用
                 if cover.get("media_id"):
                     thumb_media_id = cover["media_id"]
                 else:
-                    # 需要上传封面到微信（传文件路径，upload_thumb 自己读取）
                     cover_path = Path(__file__).parent.parent / "data" / cover["path"]
-                    if cover_path.exists():
-                        token_upload = wx.get_access_token(cfg["appid"], cfg["secret"])
-                        thumb_media_id = wx.upload_thumb(token_upload, str(cover_path))
-                        # 保存 media_id 到 config
-                        if thumb_media_id:
-                            cover["media_id"] = thumb_media_id
-                            cfg["covers"] = covers
-                            _save_config(cfg)
-                    else:
-                        logger.warning(f"Cover file not found: {cover_path}")
             else:
-                logger.warning(f"Cover not found: {cover_id}")
+                # 再尝试从 data/covers/ 目录直接查找（支持 AI 生成封面等直接存储的封面）
+                direct_path = Path(__file__).parent.parent / "data" / "covers" / f"{cover_id}.png"
+                if direct_path.exists():
+                    cover_path = direct_path
+                else:
+                    logger.warning(f"Cover not found: {cover_id} (checked config and data/covers/)")
+
+            if cover_path and cover_path.exists():
+                try:
+                    token_upload = wx.get_access_token(cfg["appid"], cfg["secret"])
+                    thumb_media_id = wx.upload_thumb(token_upload, str(cover_path))
+                    if thumb_media_id and cover:
+                        # config 中的封面缓存 media_id
+                        cover["media_id"] = thumb_media_id
+                        cfg["covers"] = covers
+                        _save_config(cfg)
+                except Exception as e:
+                    logger.warning(f"Cover upload failed: {e}")
         
-        # 如果没有指定封面或封面处理失败，按优先级：正文图片 → 系统默认封面 → 绿色占位图
+        # 如果未指定封面或封面处理失败，按优先级：正文首图 → 默认封面 → 绿色占位图（P2 → P3 → 保底）
         if not thumb_media_id:
             # 优先级1：从正文提取首张图片
             body_images = result.images if hasattr(result, 'images') and result.images else []

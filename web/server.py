@@ -577,11 +577,11 @@ from web.wechat_router import router as wechat_router
 app.include_router(wechat_router)
 logger.info("已启用微信发布路由（/api/wechat）")
 
-# 封面图管理路由（上传 + AI 生成）
+# 封面图管理路由（AI 生成 + 列表）
 try:
     from web.cover_router import router as cover_router
     app.include_router(cover_router)
-    logger.info("已启用封面图管理路由（/api/wechat/upload-cover, /api/wechat/generate-cover）")
+    logger.info("已启用封面图管理路由（/api/wechat/generate-cover, /api/wechat/covers）")
 except ImportError:
     logger.warning("封面图路由模块 web.cover_router 未找到，跳过")
 except Exception as e:
