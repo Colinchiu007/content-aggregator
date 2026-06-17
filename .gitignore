@@ -104,3 +104,10 @@ tmp/
 
 # Environment secrets (DO NOT COMMIT)
 .env
+
+# Sensitive files
+config/config.yaml
+config/config.yaml.example
+*.env
+.env
+.env.example
