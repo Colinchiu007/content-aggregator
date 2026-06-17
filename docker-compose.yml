@@ -1,0 +1,81 @@
+# =============================================================================
+# HotRewrite v2 — Docker Compose 开发环境
+# 包含: PostgreSQL 15 + Redis 7 + Backend API
+#
+# 启动: docker compose up -d
+# 停止: docker compose down
+# 日志: docker compose logs -f backend
+# =============================================================================
+
+version: "3.9"
+
+services:
+  # ────────────────────────────────────────────
+  # PostgreSQL 15 — 主数据库
+  # ────────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: hotrewrite-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hotrewrite
+      POSTGRES_PASSWORD: hotrewrite
+      POSTGRES_DB: hotrewrite
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hotrewrite -d hotrewrite"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ────────────────────────────────────────────
+  # Redis 7 — 缓存与任务队列
+  # ────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: hotrewrite-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ────────────────────────────────────────────
+  # Backend API — FastAPI 服务
+  # ────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: hotrewrite-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://hotrewrite:hotrewrite@postgres:5432/hotrewrite
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      DEBUG: "true"
+      CORS_ORIGINS: "http://localhost:5173,http://localhost:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

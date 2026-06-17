@@ -48,14 +48,18 @@ v2 目标：**热文改写一站式平台**，技术栈迁移至 **Vue 3 + Postg
 
 ---
 
-## 🏗️ 技术栈 (v2 规划)
+## 🏗️ 技术栈 (v2)
 
 | 模块 | 技术 | 说明 |
 |------|------|------|
-| **前端** | Vue 3 + Element Plus | 成熟、组件丰富 |
-| **后端** | (待定) | 配套 API 服务 |
-| **数据库** | PostgreSQL | 关系型数据存储 |
-| **缓存** | Redis | 会话/热点数据缓存 |
+| **前端** | Vue 3 + TypeScript + Element Plus + Vite | SPA，Composition API + `<script setup>` |
+| **后端** | FastAPI (Python 3.12+) + SQLAlchemy 2.0 (async) | 异步 API 服务 |
+| **数据库** | PostgreSQL 15 | 关系型数据存储 |
+| **缓存** | Redis 7 | 会话/热点数据缓存 |
+| **认证** | JWT (python-jose + passlib/bcrypt) | 用户登录鉴权 |
+| **采集** | httpx + trafilatura | 异步 HTTP + HTML 正文提取 |
+| **AI** | OpenAI-compatible API (通义千问/DeepSeek) | 多风格改写 |
+| **部署** | Docker Compose + Nginx | 一键部署 |
 
 ---
 
@@ -64,6 +68,33 @@ v2 目标：**热文改写一站式平台**，技术栈迁移至 **Vue 3 + Postg
 ```
 Project001-HotRewrite/
 ├── README.md              ← 你在这里
+├── docker-compose.yml     # PostgreSQL 15 + Redis 7
+├── backend/               # FastAPI 后端 (v2)
+│   ├── app/
+│   │   ├── main.py        # FastAPI app factory
+│   │   ├── config.py      # pydantic-settings 配置
+│   │   ├── database.py    # 异步 SQLAlchemy 引擎
+│   │   ├── models/        # ORM 模型 (User, Article, PublishLog)
+│   │   ├── schemas/       # Pydantic 请求/响应模型
+│   │   ├── api/v1/        # API 路由 (auth, articles, collector, rewriter, publisher)
+│   │   ├── services/      # 业务逻辑层 (collector, rewriter, publisher)
+│   │   └── core/          # JWT 安全 + 异常处理
+│   ├── alembic/           # 数据库迁移
+│   ├── tests/             # pytest 测试
+│   ├── pyproject.toml     # Python 依赖
+│   └── Dockerfile
+├── frontend/              # Vue 3 前端 (v2)
+│   ├── src/
+│   │   ├── views/         # 7 个页面 (Home, Login, Rewrite, History, Publish, Settings, Register)
+│   │   ├── components/    # UI 组件 (UrlInput, StyleSelector, RewriteResult, PublishPanel...)
+│   │   ├── api/           # Axios API 客户端 (auth, articles, collector, rewriter, publisher)
+│   │   ├── stores/        # Pinia 状态管理 (user, article)
+│   │   ├── router/        # Vue Router (7 路由 + 鉴权守卫)
+│   │   ├── types/         # TypeScript 接口定义
+│   │   └── utils/         # 工具函数
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── Dockerfile
 ├── 01-docs/               # Agent 开发规范、迁移文档
 ├── 02-source/             # v2 设计资产（PRD、架构、竞品分析）
 │   ├── PRD/               # 产品需求文档
@@ -73,16 +104,48 @@ Project001-HotRewrite/
 │   └── UI/                # 界面设计
 ├── 03-memory/             # 会话记忆导出
 ├── _archive_v1/           # v1 代码归档（Content Aggregator）
-│   ├── README.md          # 归档说明
-│   ├── src/               # v1 Python 源码
-│   ├── web/               # v1 Web UI
-│   ├── config/            # v1 配置文件
-│   └── ...                # 其他 v1 模块
-├── CHANGELOG.md           # 变更记录
-├── SPEC.md                # v1 功能规格（历史参考）
-├── pyproject.toml         # v1 Python 项目配置（历史参考）
-└── requirements.txt       # v1 Python 依赖（历史参考）
+└── CHANGELOG.md           # 变更记录
 ```
+
+---
+
+## 🚀 快速开始
+
+### 环境要求
+- Python 3.12+
+- Node.js 20+
+- PostgreSQL 15+
+- Redis 7+
+
+### Docker Compose（推荐）
+```bash
+# 启动 PostgreSQL + Redis
+docker compose up -d
+
+# 后端
+cd backend
+cp .env.example .env      # 填写 OPENAI_API_KEY 等
+pip install -e ".[dev]"
+alembic upgrade head
+uvicorn app.main:app --reload --port 8000
+
+# 前端
+cd frontend
+npm install
+npm run dev               # → http://localhost:3000
+```
+
+### API 端点
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/auth/register` | 用户注册 |
+| POST | `/api/v1/auth/login` | 登录获取 JWT |
+| GET | `/api/v1/auth/me` | 当前用户信息 |
+| POST | `/api/v1/collect/url` | URL 采集 |
+| POST | `/api/v1/rewrite/` | AI 改写 |
+| POST | `/api/v1/publish/` | 多平台发布 |
+| GET | `/api/v1/articles/` | 文章列表 |
+| GET | `/api/v1/health` | 健康检查 |
 
 ---
 
