@@ -1,232 +1,110 @@
-# Content Aggregator
+# 热文改写一站式平台 (HotRewrite)
 
-**内容聚合与改写平台** — 将互联网优质内容转化为标准化内容资产，支持多源采集、AI 深度改写、多格式导出，赋能内容创作者高效运营多平台。
+> **内容采集 → AI 改写 → 多平台发布，一站式完成**
+>
+> 帮助内容创作者快速将优质文章进行AI改写，并一键发布到多个平台的内容生产力工具。
 
 ---
 
-## 核心特性
+## 🎯 项目方向 (v2)
 
-### 📡 多源内容采集
-- **RSS 订阅源**：支持代理，自动解析 Feed 内容
-- **自定义 URL 采集**：指定任意网页链接进行采集
-- **多源聚合**：配置多个 RSS 源，支持按关键词过滤
+本项目当前处于 **v2 设计阶段**。v1 "Content Aggregator"（Python + Jinja2 + SQLite）已归档至 [`_archive_v1/`](_archive_v1/)。
 
-### ✍️ AI 智能改写（6 种策略）
-内置六种改写策略，支持通过 `config.yaml` 自定义提示词模板：
+v2 目标：**热文改写一站式平台**，技术栈迁移至 **Vue 3 + PostgreSQL**。
 
-| 策略 | 说明 |
+### 当前设计文档
+
+| 文档 | 路径 |
 |------|------|
-| `SUMMARIZE` | 摘要提取，200–500 字核心要点 |
-| `STYLE_TRANSFER` | 风格迁移，转换为指定文案风格 |
-| `PARAPHRASE` | 伪原创，同义替换保持语义一致 |
-| `REWRITE` | 深度改写，重新组织结构与表达 |
-| `EXPAND` | 内容扩展，补充背景/案例/数据 |
-| `SHORT_VIDEO` | 短视频文案仿写，保持 40–50% 相似度 |
-
-支持 DeepSeek / OpenAI / Qwen 等主流 LLM API，可通过配置文件灵活切换。
-
-### 🔍 内容过滤与质量控制
-- **敏感词过滤**：DFA 算法，支持自定义词库和白名单
-- **内容去重**：SimHash + MinHash 相似度检测，防止重复发布
-
-### 📤 多格式导出
-| 格式 | 说明 | 适用场景 |
-|------|------|----------|
-| Markdown | 标准结构化文档 | 通用存档、二次编辑 |
-| HTML | 微信内联样式 | 公众号直接粘贴发布 |
-| JSON | 完整结构化数据 | Skill 间调用、程序处理 |
-| TXT | 纯文本 | 配音、摘要、纯内容 |
-| 小红书 | emoji + 标签格式 | 小红书平台发布 |
-
-### 💻 CLI 命令行工具
-```bash
-# 单条 RSS 处理
-python scripts/run.py --url "https://example.com/rss.xml" --format markdown
-
-# 批量处理（从文件读取 URL）
-python scripts/run.py --file urls.txt --format markdown --format html
-
-# 指定改写策略
-python scripts/run.py --url "..." --strategy SHORT_VIDEO
-
-# 跳过 AI 改写（仅采集）
-python scripts/run.py --url "..." --no-rewrite --format html
-```
+| **PRD (产品需求文档)** | [`02-source/PRD/PROJECT-001-PRD-2026-06-15.md`](02-source/PRD/PROJECT-001-PRD-2026-06-15.md) |
+| 竞品分析 | [`02-source/competitor-analysis/`](02-source/competitor-analysis/) |
+| 产品设计思路 | [`02-source/PROJECT-001-产品设计思路-2026-06-15.md`](02-source/PROJECT-001-产品设计思路-2026-06-15.md) |
+| 架构设计 | [`02-source/TECH/`](02-source/TECH/) |
+| 业务需求 | [`02-source/BUSINESS/`](02-source/BUSINESS/) |
 
 ---
 
-## Web UI（可选）
+## 🧭 v2 核心功能规划
 
-项目内置 Web 管理界面，支持可视化操作：
+### 内容输入
+- URL 采集（公众号、知乎、掘金、头条等）
+- 粘贴文本 / 文件上传
+- 热榜发现（Phase 2）
 
-### 启动 Web UI
-```bash
-# 方式一：直接启动（开发）
-python -m uvicorn web.server:app --host 127.0.0.1 --port 8000 --reload
+### AI 改写
+- 多风格选择（公众号/知乎/小红书/短视频文案等）
+- 长度控制 + 高级选项（SEO 优化）
+- 改写预览 + 手动编辑
 
-# 方式二：通过脚本启动
-python scripts/web.py
-```
+### 多平台发布
+- 平台账号绑定
+- 一键发布 / 定时发布
+- 发布日志与状态跟踪
 
-浏览器访问：`http://127.0.0.1:8000`
+### 内容管理
+- 素材库（Phase 2）
+- 改写历史
+- 竞品监控（Phase 2）
 
-### 功能页面
+---
 
-| 页面 | 路径 | 功能 |
+## 🏗️ 技术栈 (v2 规划)
+
+| 模块 | 技术 | 说明 |
 |------|------|------|
-| 文章列表 | `/articles` | 查看/搜索/删除已采集文章 |
-| 文章详情 | `/articles/{id}` | 查看文章完整内容 |
-| 内容改写 | `/compose` | 手动输入内容并 AI 改写 |
-| 数据源管理 | `/sources` | 管理 RSS/YouTube 等数据源 |
-| 定时任务 | `/scheduler` | 创建/编辑/启停定时采集任务 |
-| 任务管理 | `/tasks` | 查看异步任务进度和历史 |
-| 系统设置 | `/settings` | 修改 LLM 配置等参数 |
-
-### Web API（异步任务模式）
-
-所有耗时操作（采集/改写）均为**异步任务**，提交后返回 `task_id`，前端轮询获取结果：
-
-```bash
-# 1. 提交采集任务
-curl -X POST "http://127.0.0.1:8000/api/collect/url" \
-
-  -d "url=https://sspai.com/feed&source_type=rss&rewrite=true"
-# 返回: {"task_id": "task_xxx", "status": "started"}
-
-# 2. 轮询任务状态
-curl "http://127.0.0.1:8000/api/tasks/task_xxx"
-# 返回: {"status": "done", "progress": 100, ...}
-```
-
-> 📖 完整 API 文档见 `docs/API.md`
+| **前端** | Vue 3 + Element Plus | 成熟、组件丰富 |
+| **后端** | (待定) | 配套 API 服务 |
+| **数据库** | PostgreSQL | 关系型数据存储 |
+| **缓存** | Redis | 会话/热点数据缓存 |
 
 ---
 
-## 快速开始
+## 📁 仓库结构
 
-### 1. 安装依赖
-```bash
-pip install -r requirements.txt
+```
+Project001-HotRewrite/
+├── README.md              ← 你在这里
+├── 01-docs/               # Agent 开发规范、迁移文档
+├── 02-source/             # v2 设计资产（PRD、架构、竞品分析）
+│   ├── PRD/               # 产品需求文档
+│   ├── TECH/              # 技术架构
+│   ├── BUSINESS/          # 业务需求
+│   ├── competitor-analysis/  # 竞品分析
+│   └── UI/                # 界面设计
+├── 03-memory/             # 会话记忆导出
+├── _archive_v1/           # v1 代码归档（Content Aggregator）
+│   ├── README.md          # 归档说明
+│   ├── src/               # v1 Python 源码
+│   ├── web/               # v1 Web UI
+│   ├── config/            # v1 配置文件
+│   └── ...                # 其他 v1 模块
+├── CHANGELOG.md           # 变更记录
+├── SPEC.md                # v1 功能规格（历史参考）
+├── pyproject.toml         # v1 Python 项目配置（历史参考）
+└── requirements.txt       # v1 Python 依赖（历史参考）
 ```
 
-### 2. 配置
+---
+
+## 🚀 路线图
+
+| 阶段 | 时间 | 核心功能 |
+|------|------|---------|
+| **MVP** | 第 1-3 周 | URL 采集 + AI 改写 + 发布 |
+| **内测** | 第 4 周 | 邀请 10 用户测试 |
+| **公测** | 第 5-8 周 | 开放注册 |
+| **Phase 2** | 第 9-12 周 | 热榜 + 素材库 + 竞品监控 |
+| **Phase 3** | 第 13-18 周 | 团队协作 + 商业化 |
+
+---
+
+## ⚠️ v1 代码说明
+
+v1 "Content Aggregator"（~23K LOC Python + Jinja2 + SQLite）提供 RSS 采集、AI 改写、多格式导出等功能，代码完整可用。全部已归档至 [`_archive_v1/`](_archive_v1/)，详见[归档说明](_archive_v1/README.md)。
+
+如需运行 v1：
 ```bash
-cp config/config.example.yaml config/config.yaml
-# 编辑 config.yaml，填入 LLM API Key
-```
-
-**最小配置示例（`config.yaml`）：**
-```yaml
-llm:
-  provider: "deepseek"
-  api_key: "${LLM_API_KEY}"   # 或直接填入 "sk-xxx"
-  model: "deepseek-chat"
-  base_url: "https://api.deepseek.com"
-
-export:
-  output_dir: "./output/exports"
-```
-
-### 3. 运行
-```bash
-# CLI 模式（单次采集）
+cd _archive_v1/
+pip install -r ../requirements.txt
 python scripts/run.py --url "https://feeds.feedburner.com/ruanyifeng" --format markdown
-
-# Web UI 模式（可视化操作）
-python -m uvicorn web.server:app --host 127.0.0.1 --port 8000
-# 然后访问 http://127.0.0.1:8000
 ```
-
----
-
-## Python 模块调用
-
-```python
-import asyncio
-from content_aggregator import ContentPipeline
-
-config = {
-    "llm": {
-        "provider": "deepseek",
-        "api_key": "sk-xxx",
-        "model": "deepseek-chat",
-    },
-    "export": {
-        "output_dir": "./output/exports"
-    }
-}
-
-async def main():
-    async with ContentPipeline(config) as pipeline:
-        article = await pipeline.process_url("https://example.com/rss.xml")
-        path = pipeline.exporter.export(article, "markdown")
-        print(f"导出至: {path}")
-
-asyncio.run(main())
-```
-
-### 高级：自定义提示词
-```python
-from content_aggregator.processors.rewrite import RewriteProcessor, RewriteConfig, RewriteStrategy
-
-# 方式一：代码级自定义（最高优先级）
-config = RewriteConfig(
-    strategy=RewriteStrategy.SHORT_VIDEO,
-    custom_prompt="你的自定义提示词内容..."
-)
-
-# 方式二：配置文件覆盖（config.yaml）
-# rewrite:
-#   prompts:
-#     short_video: |
-#       你的自定义短视频改写提示词...
-```
-
----
-
-## 项目结构
-
-```
-content-aggregator/
-├── config/
-│   ├── config.yaml          # 运行配置
-│   └── config.example.yaml  # 配置示例
-├── src/content_aggregator/
-│   ├── sources/              # 数据采集
-│   │   └── rss.py           # RSS 采集器（含代理支持）
-│   ├── processors/           # 内容处理
-│   │   ├── rewrite.py       # AI 改写（6 种策略）
-│   │   ├── formatter.py     # 内容格式化
-│   │   └── filter/          # 内容过滤
-│   │       ├── sensitive.py # 敏感词过滤
-│   │       └── dedup.py     # 相似度去重
-│   ├── exporters/           # 多格式导出
-│   ├── storage/             # 数据持久化（SQLite）
-│   ├── workflows/           # 处理流水线
-│   └── models.py            # 数据模型
-├── scripts/                 # CLI 脚本与测试
-├── output/exports/          # 导出文件目录
-├── SPEC.md                  # 详细功能规格说明
-├── CHANGELOG.md             # 变更记录
-└── requirements.txt
-```
-
----
-
-## 技术栈
-
-| 类别 | 技术 |
-|------|------|
-| 语言 | Python 3.12+ |
-| HTTP | httpx（异步，代理支持）|
-| RSS 解析 | feedparser |
-| LLM | OpenAI 兼容 API |
-| 配置 | Pydantic v2 |
-| 数据库 | SQLite + aiosqlite |
-| 日志 | Loguru |
-
----
-
-## License
-
-MIT
