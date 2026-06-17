@@ -1,0 +1,680 @@
+{% extends "base.html" %}
+{% set active_page = 'scheduler' %}
+{% block title %}定时调度 - Content Aggregator{% endblock %}
+
+{% block content %}
+<style>
+.schedule-grid {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 20px;
+    align-items: start;
+}
+@media (max-width: 900px) {
+    .schedule-grid { grid-template-columns: 1fr; }
+}
+
+/* 任务卡片 */
+.job-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 12px;
+    transition: border-color 0.15s;
+}
+.job-card:hover { border-color: var(--primary); }
+.job-card.disabled { opacity: 0.5; }
+.job-card-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.job-name {
+    font-size: 15px; font-weight: 600; flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.job-type-badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 20px;
+    background: var(--bg-hover); color: var(--text-muted);
+}
+.job-type-badge.interval { background: #1e3a5f; color: #60a5fa; }
+.job-type-badge.cron { background: #1f2937; color: #a78bfa; }
+.job-type-badge.once { background: #1f2a1f; color: #4ade80; }
+
+.job-meta {
+    display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px;
+    color: var(--text-muted); margin-bottom: 10px;
+}
+.job-meta span { display: flex; align-items: center; gap: 4px; }
+.job-sources {
+    font-size: 12px; color: var(--text-muted); margin-bottom: 10px;
+    display: flex; flex-wrap: wrap; gap: 4px;
+}
+.source-tag {
+    background: var(--bg-hover); padding: 1px 8px; border-radius: 10px;
+    font-size: 11px;
+}
+.source-tag.active { background: #1a3a1a; color: var(--success); }
+
+.job-keywords {
+    font-size: 12px; color: var(--warning); margin-bottom: 10px;
+}
+.job-keywords:empty { display: none; }
+
+.job-actions {
+    display: flex; gap: 8px; flex-wrap: wrap;
+}
+.btn {
+    font-size: 12px; padding: 5px 12px; border-radius: 6px;
+    border: none; cursor: pointer; font-weight: 500;
+    transition: all 0.15s;
+}
+.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-success { background: var(--success); color: #fff; }
+.btn-success:hover { opacity: 0.85; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover { opacity: 0.85; }
+.btn-ghost {
+    background: var(--bg-hover); color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+.btn-ghost:hover { color: var(--text); }
+.btn-sm { font-size: 11px; padding: 3px 8px; }
+
+/* 状态指示 */
+.status-dot {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+.status-idle { background: var(--text-muted); }
+.status-running { background: var(--primary); animation: pulse 1s infinite; }
+.status-error { background: var(--danger); }
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* 侧边栏 */
+.sidebar-panel {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+    position: sticky; top: 20px;
+}
+.panel-title {
+    font-size: 14px; font-weight: 600; margin-bottom: 16px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--border);
+}
+
+/* 表单 */
+.form-group { margin-bottom: 14px; }
+.form-label {
+    display: block; font-size: 12px; font-weight: 500;
+    color: var(--text-muted); margin-bottom: 5px;
+}
+.form-input, .form-select, .form-textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; color: var(--text);
+    font-size: 13px; outline: none;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+    border-color: var(--primary);
+}
+.form-textarea { resize: vertical; min-height: 70px; font-family: inherit; }
+.form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+/* 来源选择 */
+.source-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+.source-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; background: var(--bg); border-radius: 6px;
+    border: 1px solid var(--border); cursor: pointer;
+    font-size: 12px; transition: all 0.1s;
+}
+.source-item:hover { border-color: var(--primary); }
+.source-item.selected { border-color: var(--primary); background: rgba(59,130,246,0.1); }
+.source-item input { display: none; }
+.source-check {
+    width: 14px; height: 14px; border-radius: 3px;
+    border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+    font-size: 10px; flex-shrink: 0;
+}
+.source-item.selected .source-check {
+    background: var(--primary); border-color: var(--primary); color: #fff;
+}
+
+/* 历史面板 */
+.history-panel {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-top: 20px;
+}
+.history-header {
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+}
+.history-list { max-height: 0; overflow: hidden; transition: max-height 0.3s; }
+.history-list.open { max-height: 400px; overflow-y: auto; }
+.history-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 16px; border-bottom: 1px solid var(--border);
+    font-size: 12px;
+}
+.history-item:last-child { border-bottom: none; }
+.history-time { color: var(--text-muted); flex: 1; }
+.history-count { color: var(--success); }
+.history-count.fail { color: var(--danger); }
+.history-error { font-size: 11px; color: var(--danger); }
+
+/* Toast */
+.toast {
+    position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 18px; font-size: 13px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    animation: slideIn 0.2s ease;
+}
+.toast.success { border-left: 3px solid var(--success); }
+.toast.error { border-left: 3px solid var(--danger); }
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* 分隔线 */
+.section-title {
+    font-size: 13px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.05em;
+    margin: 16px 0 10px;
+}
+
+/* 开关 */
+.toggle {
+    position: relative; width: 36px; height: 20px;
+}
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+    position: absolute; cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--bg-hover); border-radius: 20px;
+    transition: 0.2s;
+}
+.toggle-slider:before {
+    position: absolute; content: "";
+    height: 14px; width: 14px; left: 3px; bottom: 3px;
+    background: white; border-radius: 50%;
+    transition: 0.2s;
+}
+.toggle input:checked + .toggle-slider { background: var(--primary); }
+.toggle input:checked + .toggle-slider:before { transform: translateX(16px); }
+</style>
+
+<div class="page-header">
+    <h1>🕐 定时调度</h1>
+    <button class="btn btn-primary" onclick="openCreateModal()">+ 新建定时任务</button>
+</div>
+
+{% if not jobs %}
+<div class="card" style="text-align:center; padding:60px 20px; color:var(--text-muted)">
+    <div style="font-size:48px; margin-bottom:16px">🕐</div>
+    <div style="font-size:16px; margin-bottom:8px">暂无定时任务</div>
+    <div style="font-size:13px">点击右上角「新建定时任务」创建第一个采集计划</div>
+</div>
+{% else %}
+<div class="schedule-grid">
+    <div>
+        {% for job in jobs %}
+        <div class="job-card {% if not job.enabled %}disabled{% endif %}" id="job-{{ job.id }}">
+            <div class="job-card-header">
+                <span class="status-dot status-{{ job.status }}"></span>
+                <span class="job-name">{{ job.name }}</span>
+                <span class="job-type-badge {{ job.type }}">{{ job.type }}</span>
+                {% if job.type == 'interval' %}
+                <span style="font-size:11px;color:var(--text-muted)">{{ job.interval_hours }}h</span>
+                {% else %}
+                <span style="font-size:11px;color:var(--text-muted)">{{ job.cron }}</span>
+                {% endif %}
+            </div>
+            <div class="job-meta">
+                {% if job.last_run %}
+                <span>📅 上次：{{ job.last_run[:16] }}</span>
+                {% endif %}
+                {% if job.next_run and job.enabled %}
+                <span>⏰ 下次：{{ job.next_run[:16] }}</span>
+                {% elif not job.enabled %}
+                <span style="color:var(--danger)">⏸ 已停用</span>
+                {% endif %}
+                <span>{{ job.keywords|length if job.keywords else 0 }} 个关键词</span>
+                <span>{{ job.sources|length if job.sources else 0 }} 个数据源</span>
+            </div>
+            {% if job.keywords %}
+            <div class="job-keywords">🏷 {{ job.keywords|join(', ') }}</div>
+            {% endif %}
+            <div class="job-actions">
+                <button class="btn btn-ghost btn-sm" onclick="runNow('{{ job.id }}', this)">▶ 立即执行</button>
+                <button class="btn btn-ghost btn-sm" onclick="toggleJob('{{ job.id }}')">
+                    {% if job.enabled %}⏸ 暂停{% else %}▶ 启用{% endif %}
+                </button>
+                <button class="btn btn-ghost btn-sm" onclick="openEditModal('{{ job.id }}')">✏️ 编辑</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteJob('{{ job.id }}')">🗑 删除</button>
+            </div>
+            {% if job.last_error %}
+            <div class="history-error" style="margin-top:8px">❌ {{ job.last_error }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- 历史记录侧边 -->
+    <div class="history-panel">
+        <div class="history-header" onclick="toggleHistory()">
+            📜 执行历史
+            <span id="hist-arrow">▼</span>
+        </div>
+        <div class="history-list" id="history-list"></div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 创建/编辑 Modal -->
+<div id="job-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0;
+    background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:12px;
+        width:560px; max-width:95vw; max-height:90vh; overflow-y:auto; padding:24px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+            <h2 style="font-size:16px" id="modal-title">新建定时任务</h2>
+            <button onclick="closeModal()" style="background:none;border:none;color:var(--text-muted);
+                font-size:20px;cursor:pointer">×</button>
+        </div>
+        <form id="job-form" onsubmit="return saveJob(event)">
+            <input type="hidden" id="job-id" value="">
+
+            <div class="form-group">
+                <label class="form-label">任务名称</label>
+                <input class="form-input" id="job-name" placeholder="例如：每天早间科技新闻" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">调度类型</label>
+                <select class="form-select" id="job-type" onchange="onTypeChange()">
+                    <option value="interval">⏱ 间隔周期（每隔 X 小时）</option>
+                    <option value="cron">⏰ Cron 定时（每天几点/每周几）</option>
+                </select>
+            </div>
+
+            <div id="interval-section">
+                <div class="form-group">
+                    <label class="form-label">执行间隔（小时）</label>
+                    <input class="form-input" id="job-interval" type="number" min="0.5" step="0.5" value="1" placeholder="1">
+                    <div class="form-hint">支持小数，如 0.5 = 每30分钟，2 = 每2小时</div>
+                </div>
+            </div>
+
+            <div id="cron-section" style="display:none">
+                <div class="form-group">
+                    <label class="form-label">Cron 表达式</label>
+                    <input class="form-input" id="job-cron" value="0 9 * * *" placeholder="0 9 * * *">
+                    <div class="form-hint">
+                        格式：分 时 日 月 周<br>
+                        常用示例：<br>
+                        0 9 * * * → 每天 09:00<br>
+                        0 9,18 * * 1-5 → 工作日 09:00 和 18:00<br>
+                        30 14 * * 0,6 → 周末 14:30<br>
+                        */15 * * * * → 每 15 分钟
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-title">📡 数据源（留空 = 全源采集）</div>
+            <div class="source-list" id="source-list">
+                {% for s in sources %}
+                <label class="source-item" data-type="{{ s.type }}" data-url="{{ s.url }}">
+                    <span class="source-check">✓</span>
+                    <span>{{ s.type|upper }} · {{ s.name }}</span>
+                    {% if not s.enabled %}<span style="font-size:10px;color:var(--text-muted)">(未启用)</span>{% endif %}
+                </label>
+                {% endfor %}
+                {% if not sources %}
+                <div style="font-size:12px;color:var(--text-muted);padding:8px">暂无配置的数据源，请先在「数据源」中添加</div>
+                {% endif %}
+            </div>
+
+            <div class="section-title">🏷 关键词过滤（留空 = 不过滤）</div>
+            <div class="form-group" style="margin-top:6px">
+                <textarea class="form-textarea" id="job-keywords"
+                    placeholder="输入关键词，多个用换行分隔。例如：&#10;人工智能&#10;机器学习&#10;LLM"></textarea>
+                <div class="form-hint">仅采集标题或正文中包含任意一个关键词的文章（不区分大小写）</div>
+            </div>
+
+            <div class="section-title">⚙️ 采集后处理</div>
+            <div style="display:flex;gap:12px;align-items:center;margin-top:4px">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+                    <label class="toggle">
+                        <input type="checkbox" id="job-rewrite" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                    AI 改写
+                </label>
+                <div style="display:flex;align-items:center;gap:6px;font-size:13px">
+                    翻译：
+                    <select class="form-select" id="job-translate" style="width:120px">
+                        <option value="">不翻译</option>
+                        <option value="EN">English</option>
+                        <option value="JA">日本語</option>
+                        <option value="KO">한국어</option>
+                        <option value="FR">Français</option>
+                        <option value="DE">Deutsch</option>
+                        <option value="ES">Español</option>
+                        <option value="PT">Português</option>
+                        <option value="RU">Русский</option>
+                        <option value="AR">العربية</option>
+                        <option value="ZH">中文（繁体）</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+                <button type="button" class="btn btn-ghost" onclick="closeModal()">取消</button>
+                <button type="submit" class="btn btn-primary">保存任务</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// ── Modal ──────────────────────────────────────────────────────────────
+function openCreateModal() {
+    document.getElementById('modal-title').textContent = '新建定时任务';
+    document.getElementById('job-id').value = '';
+    document.getElementById('job-form').reset();
+    document.getElementById('job-modal').style.display = 'flex';
+    document.getElementById('interval-section').style.display = 'block';
+    document.getElementById('cron-section').style.display = 'none';
+    clearSourceSelection();
+}
+
+function openEditModal(jobId) {
+    fetch(`/api/schedules`)
+        .then(r => r.json())
+        .then(d => {
+            const job = d.jobs.find(j => j.id === jobId);
+            if (!job) { showToast('任务未找到', 'error'); return; }
+            document.getElementById('modal-title').textContent = '编辑定时任务';
+            document.getElementById('job-id').value = job.id;
+            document.getElementById('job-name').value = job.name;
+            document.getElementById('job-type').value = job.type;
+            document.getElementById('job-interval').value = job.interval_hours;
+            document.getElementById('job-cron').value = job.cron;
+            document.getElementById('job-rewrite').checked = job.rewrite !== false;
+            document.getElementById('job-translate').value = job.translate || '';
+            document.getElementById('job-keywords').value = (job.keywords || []).join('\n');
+            onTypeChange();
+            setSourceSelection(job.sources || []);
+            document.getElementById('job-modal').style.display = 'flex';
+        });
+}
+
+function closeModal() {
+    document.getElementById('job-modal').style.display = 'none';
+}
+
+function onTypeChange() {
+    const t = document.getElementById('job-type').value;
+    document.getElementById('interval-section').style.display = t === 'interval' ? 'block' : 'none';
+    document.getElementById('cron-section').style.display = t === 'cron' ? 'block' : 'none';
+}
+
+// ── 来源选择 ─────────────────────────────────────────────────────────
+document.querySelectorAll('.source-item').forEach(el => {
+    el.addEventListener('click', () => {
+        el.classList.toggle('selected');
+    });
+});
+
+function clearSourceSelection() {
+    document.querySelectorAll('.source-item').forEach(el => el.classList.remove('selected'));
+}
+
+function setSourceSelection(sources) {
+    clearSourceSelection();
+    sources.forEach(s => {
+        const el = document.querySelector(
+            `.source-item[data-type="${s.type}"][data-url="${s.url || ''}"]`
+        );
+        if (el) el.classList.add('selected');
+    });
+}
+
+function getSelectedSources() {
+    return Array.from(document.querySelectorAll('.source-item.selected')).map(el => ({
+        type: el.dataset.type,
+        url: el.dataset.url || '',
+        name: el.textContent.trim(),
+    }));
+}
+
+// ── 保存 ─────────────────────────────────────────────────────────────
+function saveJob(e) {
+    e.preventDefault();
+    const btn = e.submitter;
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+
+    const id = document.getElementById('job-id').value;
+    const keywords_raw = document.getElementById('job-keywords').value;
+    const keywords = keywords_raw.split('\n').map(k => k.trim()).filter(Boolean);
+
+    const payload = {
+        name: document.getElementById('job-name').value,
+        type: document.getElementById('job-type').value,
+        interval_hours: parseFloat(document.getElementById('job-interval').value) || 1,
+        cron: document.getElementById('job-cron').value,
+        sources: getSelectedSources(),
+        keywords: keywords,
+        rewrite: document.getElementById('job-rewrite').checked,
+        translate: document.getElementById('job-translate').value,
+    };
+
+    const method = id ? 'PUT' : 'POST';
+    const url = id ? `/api/schedules/${id}` : '/api/schedules';
+
+    fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    })
+    .then(r => r.json())
+    .then(d => {
+        btn.disabled = false;
+        btn.textContent = '保存任务';
+        if (d.error) { showToast(d.error, 'error'); return; }
+        showToast(id ? '任务已更新' : '任务已创建', 'success');
+        closeModal();
+        setTimeout(() => location.reload(), 500);
+    })
+    .catch(err => {
+        btn.disabled = false;
+        btn.textContent = '保存任务';
+        showToast('保存失败: ' + err, 'error');
+    });
+
+    return false;
+}
+
+// ── 操作 ──────────────────────────────────────────────────────────────
+// 轮询任务执行状态（替代 WebSocket）
+function pollJob(jobId, btnEl) {
+    let attempts = 0;
+    const maxAttempts = 60;  // 最多等 5 分钟（5s × 60）
+    const check = () => {
+        fetch(`/api/schedules/${jobId}/history`)
+            .then(r => r.json())
+            .then(d => {
+                const hist = d.history || [];
+                if (hist.length) {
+                    const latest = hist[0];
+                    // finished_at 存在说明执行完成
+                    if (latest.finished_at || latest.status === 'done' || latest.status === 'error') {
+                        clearInterval(timer);
+                        if (btnEl) btnEl.disabled = false;
+                        if (latest.success) {
+                            showToast(`✅ 采集完成，${latest.articles_count || 0} 篇文章`, 'success');
+                        } else {
+                            showToast(`❌ 采集失败：${latest.error || '未知错误'}`, 'error');
+                        }
+                        setTimeout(() => location.reload(), 3000);
+                        return;
+                    }
+                }
+                attempts++;
+                if (attempts >= maxAttempts) {
+                    clearInterval(timer);
+                    if (btnEl) btnEl.disabled = false;
+                    showToast('任务仍在执行中，请稍后刷新查看', 'error');
+                }
+            })
+            .catch(() => {
+                attempts++;
+                if (attempts >= maxAttempts) {
+                    clearInterval(timer);
+                    if (btnEl) btnEl.disabled = false;
+                }
+            });
+    };
+    const timer = setInterval(check, 5000);
+    check();
+}
+
+function runNow(jobId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '执行中...'; }
+    fetch(`/api/schedules/${jobId}/run`, { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) {
+                showToast(d.error, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = '▶ 立即执行'; }
+                return;
+            }
+            showToast('已触发执行，正在采集中...', 'success');
+            pollJob(jobId, btn);
+        })
+        .catch(err => {
+            showToast('触发失败: ' + err, 'error');
+            if (btn) { btn.disabled = false; btn.textContent = '▶ 立即执行'; }
+        });
+}
+
+function toggleJob(jobId) {
+    if (!confirm('确定要切换任务状态吗？')) return;
+    fetch(`/api/schedules/${jobId}/toggle`, { method: 'POST' })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { showToast(d.error, 'error'); return; }
+            showToast(d.job.enabled ? '已启用' : '已暂停', 'success');
+            setTimeout(() => location.reload(), 800);
+        })
+        .catch(err => showToast('操作失败: ' + err, 'error'));
+}
+
+function deleteJob(jobId) {
+    if (!confirm('确定要删除这个定时任务吗？\n删除后不可恢复！')) return;
+    fetch(`/api/schedules/${jobId}`, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { showToast(d.error, 'error'); return; }
+            showToast('已删除', 'success');
+            setTimeout(() => location.reload(), 800);
+        })
+        .catch(err => showToast('删除失败: ' + err, 'error'));
+}
+
+// ── 历史 ─────────────────────────────────────────────────────────────
+function toggleHistory() {
+    const list = document.getElementById('history-list');
+    const arrow = document.getElementById('hist-arrow');
+    list.classList.toggle('open');
+    arrow.textContent = list.classList.contains('open') ? '▲' : '▼';
+    if (list.classList.contains('open') && !list.dataset.loaded) {
+        loadHistory();
+    }
+}
+
+function loadHistory() {
+    const list = document.getElementById('history-list');
+    list.dataset.loaded = '1';
+    // 加载所有任务的最新历史
+    fetch('/api/schedules')
+        .then(r => r.json())
+        .then(d => {
+            const allHistory = [];
+            const jobs = d.jobs || [];
+            const loadNext = (i) => {
+                if (i >= jobs.length) {
+                    renderHistory(allHistory);
+                    return;
+                }
+                fetch(`/api/schedules/${jobs[i].id}/history`)
+                    .then(r => r.json())
+                    .then(hd => {
+                        (hd.history || []).forEach(r => allHistory.push(r));
+                        loadNext(i + 1);
+                    });
+            };
+            if (jobs.length) loadNext(0);
+            else renderHistory([]);
+        });
+}
+
+function renderHistory(history) {
+    const list = document.getElementById('history-list');
+    if (!history.length) {
+        list.innerHTML = '<div style="padding:12px 16px;font-size:12px;color:var(--text-muted)">暂无执行记录</div>';
+        return;
+    }
+    history.sort((a, b) => (b.started_at || '').localeCompare(a.started_at || ''));
+    list.innerHTML = history.slice(0, 30).map(r => `
+        <div class="history-item">
+            <span class="history-time">${fmtTime(r.started_at)}</span>
+            <span class="job-name" style="font-size:11px">${r.job_name}</span>
+            <span class="history-count ${r.success ? '' : 'fail'}">
+                ${r.success ? '✅ ' + r.articles_count + '篇' : '❌'}
+            </span>
+            ${r.error ? `<div class="history-error">${r.error}</div>` : ''}
+        </div>
+    `).join('');
+}
+
+function fmtTime(iso) {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    return `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────
+function showToast(msg, level) {
+    const el = document.createElement('div');
+    el.className = `toast ${level}`;
+    el.textContent = msg;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+}
+
+// ── 无 WebSocket 时的轮询降级 ─────────────────────────────────────
+// 页面加载后每 30s 检查一次任务状态，有 running 则静默刷新
+(function initPolling() {
+    let lastRunning = 0;
+    setInterval(() => {
+        fetch('/api/schedules')
+            .then(r => r.json())
+            .then(d => {
+                const jobs = d.jobs || [];
+                const running = jobs.filter(j => j.status === 'running');
+                if (running.length && lastRunning < running.length) {
+                    // 新任务开始执行，3s 后刷新
+                    setTimeout(() => location.reload(), 3000);
+                }
+                lastRunning = running.length;
+            })
+            .catch(() => {});
+    }, 30000);
+})();
+</script>
+{% endblock %}

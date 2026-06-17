@@ -1,0 +1,297 @@
+{% extends "base.html" %}
+{% set active_page = 'rewrite_strategies' %}
+{% block title %}改写策略 - Content Aggregator{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>🪄 改写策略管理</h1>
+    <button class="btn btn-primary" onclick="showCreateModal()" style="margin-left:auto">+ 新建策略</button>
+</div>
+
+<!-- 内置策略 -->
+<div class="card" style="margin-bottom:16px">
+    <h3 style="margin:0 0 12px 0;color:var(--text-secondary)">内置策略</h3>
+    <div id="builtin-strategies"></div>
+</div>
+
+<!-- 自定义策略 -->
+<div class="card">
+    <h3 style="margin:0 0 12px 0;color:var(--text-secondary)">自定义策略</h3>
+    <div id="custom-strategies">
+        <p style="color:var(--text-muted);text-align:center;padding:24px">加载中...</p>
+    </div>
+</div>
+
+<!-- 新建/编辑弹窗 -->
+<div id="strategy-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:var(--card);border-radius:12px;padding:24px;width:480px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+        <h3 id="modal-title" style="margin:0 0 16px 0">新建策略</h3>
+        <input type="hidden" id="edit-strategy-id">
+
+        <div class="form-group">
+            <label class="form-label">策略名称 *</label>
+            <input class="form-input" id="strategy-name" placeholder="如：小红书爆款风格" maxlength="50">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">改写需求描述 *</label>
+            <textarea class="form-textarea" id="strategy-description" placeholder="描述改写要求，如：将文案改写为小红书爆款风格，要求口语化、带emoji、每段不超过3行..." style="min-height:120px"></textarea>
+        </div>
+
+        <div class="form-group" style="margin-bottom:20px">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                <input type="checkbox" id="strategy-is-default" style="accent-color:var(--primary)">
+                <span>设为默认策略</span>
+            </label>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;margin-left:24px">设为默认后，改写时将自动选中此策略</div>
+        </div>
+
+        <div style="display:flex;gap:12px;justify-content:flex-end">
+            <button class="btn" onclick="hideModal()" style="background:var(--bg-tertiary);color:var(--text-secondary)">取消</button>
+            <button class="btn btn-primary" onclick="saveStrategy()">保存</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.strategy-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    background: var(--bg-secondary);
+    transition: background 0.2s;
+}
+.strategy-item:hover {
+    background: var(--bg-tertiary);
+}
+.strategy-name {
+    font-weight: 600;
+    font-size: 15px;
+    flex: 1;
+}
+.strategy-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+.strategy-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 8px;
+}
+.badge-default {
+    background: var(--primary);
+    color: #fff;
+}
+.badge-builtin {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+}
+.strategy-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: 12px;
+}
+.strategy-actions button {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--text-muted);
+    transition: all 0.2s;
+}
+.strategy-actions button:hover {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+.btn-delete:hover {
+    color: #e74c3c !important;
+}
+</style>
+
+<script>
+let allStrategies = { builtin: [], custom: [], default_id: null };
+
+async function loadStrategies() {
+    try {
+        const res = await authFetch('/api/rewrite-strategies');
+        if (!res.ok) {
+            throw new Error('HTTP ' + res.status);
+        }
+        const data = await res.json();
+        if (data.success) {
+            allStrategies = data;
+            renderBuiltin();
+            renderCustom();
+        } else {
+            throw new Error(data.error || '加载失败');
+        }
+    } catch (e) {
+        document.getElementById('builtin-strategies').innerHTML =
+            '<p style="color:#e74c3c;text-align:center;padding:24px">加载失败，请刷新页面</p>';
+        document.getElementById('custom-strategies').innerHTML =
+            '<p style="color:#e74c3c;text-align:center;padding:24px">加载失败，请刷新页面</p>';
+    }
+}
+
+function renderBuiltin() {
+    const container = document.getElementById('builtin-strategies');
+    if (!allStrategies.builtin.length) {
+        container.innerHTML = '<p style="color:var(--text-muted)">暂无内置策略</p>';
+        return;
+    }
+    container.innerHTML = allStrategies.builtin.map(s => `
+        <div class="strategy-item">
+            <div style="flex:1">
+                <div class="strategy-name">${escHtml(s.name)}
+                    <span class="strategy-badge badge-builtin">内置</span>
+                </div>
+                <div class="strategy-desc">${escHtml(s.description)}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderCustom() {
+    const container = document.getElementById('custom-strategies');
+    if (!allStrategies.custom.length) {
+        container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:24px">暂无自定义策略，点击右上角新建</p>';
+        return;
+    }
+    container.innerHTML = allStrategies.custom.map(s => `
+        <div class="strategy-item">
+            <div style="flex:1">
+                <div class="strategy-name">${escHtml(s.name)}
+                    ${s.is_default ? '<span class="strategy-badge badge-default">默认</span>' : ''}
+                </div>
+                <div class="strategy-desc">${escHtml(s.description)}</div>
+            </div>
+            <div class="strategy-actions">
+                ${!s.is_default ? `<button onclick="setDefault('${s.id}')" title="设为默认">⭐</button>` : ''}
+                <button onclick="showEditModal('${s.id}')" title="编辑">✏️</button>
+                <button class="btn-delete" onclick="deleteStrategy('${s.id}')" title="删除">🗑️</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function escHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
+function showCreateModal() {
+    document.getElementById('modal-title').textContent = '新建策略';
+    document.getElementById('edit-strategy-id').value = '';
+    document.getElementById('strategy-name').value = '';
+    document.getElementById('strategy-description').value = '';
+    document.getElementById('strategy-is-default').checked = false;
+    document.getElementById('strategy-modal').style.display = 'flex';
+}
+
+function showEditModal(id) {
+    const s = allStrategies.custom.find(x => x.id === id);
+    if (!s) return;
+    document.getElementById('modal-title').textContent = '编辑策略';
+    document.getElementById('edit-strategy-id').value = id;
+    document.getElementById('strategy-name').value = s.name;
+    document.getElementById('strategy-description').value = s.description;
+    document.getElementById('strategy-is-default').checked = !!s.is_default;
+    document.getElementById('strategy-modal').style.display = 'flex';
+}
+
+function hideModal() {
+    document.getElementById('strategy-modal').style.display = 'none';
+}
+
+async function saveStrategy() {
+    const id = document.getElementById('edit-strategy-id').value;
+    const name = document.getElementById('strategy-name').value.trim();
+    const description = document.getElementById('strategy-description').value.trim();
+    const is_default = document.getElementById('strategy-is-default').checked;
+
+    if (!name || !description) {
+        alert('名称和描述不能为空');
+        return;
+    }
+
+    try {
+        let res;
+        if (id) {
+            // 更新
+            res = await authFetch(`/api/rewrite-strategies/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, description, is_default })
+            });
+        } else {
+            // 新建
+            res = await authFetch('/api/rewrite-strategies', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, description, is_default })
+            });
+        }
+        const data = await res.json();
+        if (data.success) {
+            hideModal();
+            loadStrategies();
+        } else {
+            alert(data.error || '操作失败');
+        }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    }
+}
+
+async function deleteStrategy(id) {
+    if (!confirm('确定要删除此策略吗？')) return;
+    try {
+        const res = await authFetch(`/api/rewrite-strategies/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            loadStrategies();
+        } else {
+            alert(data.error || '删除失败');
+        }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    }
+}
+
+async function setDefault(id) {
+    try {
+        const res = await authFetch(`/api/rewrite-strategies/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_default: true })
+        });
+        const data = await res.json();
+        if (data.success) {
+            loadStrategies();
+        } else {
+            alert(data.error || '设置失败');
+        }
+    } catch (e) {
+        alert('请求失败: ' + e.message);
+    }
+}
+
+// 弹窗外部点击不关闭（用户编辑信息时不误操作）
+
+// 页面加载时获取策略列表
+// 等待 DOM 就绪，确保 auth 已完成
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadStrategies);
+} else {
+    // DOM 已就绪（如从其他页面导航回来）
+    loadStrategies();
+}
+</script>
+{% endblock %}

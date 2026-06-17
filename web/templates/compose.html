@@ -1,0 +1,489 @@
+{% extends "base.html" %}
+{% set active_page = 'compose' %}
+{% block title %}单篇改写 - Content Aggregator{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>✏️ 单篇改写</h1>
+</div>
+
+<div class="card card-compose">
+    <form id="compose-form" onsubmit="return handleCompose(event)">
+        <div class="form-group">
+            <label class="form-label">标题（可选）</label>
+            <input class="form-input" name="title" placeholder="输入文章标题...">
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">内容</label>
+            <textarea class="form-textarea" name="content" id="compose-content" placeholder="粘贴或输入文章内容..." required>人工智能（AI）正在深刻改变我们的生活方式。从语音助手到自动驾驶，从医疗诊断到金融分析，AI的应用已经渗透到各个领域。
+
+然而，随着技术的快速发展，也引发了人们对就业、隐私、安全等问题的担忧。如何在享受技术红利的同时，有效规避潜在风险，成为社会各界共同面对的课题。
+
+专家认为，建立完善的AI监管体系、加强伦理规范建设、提升全民数字素养，是确保AI技术健康有序发展的关键路径。</textarea>
+        </div>
+
+        <div class="compose-form-grid">
+            <!-- 处理方式 -->
+            <div class="compose-form-col">
+                <label class="form-label">处理方式</label>
+                <select class="form-select" name="action" id="compose-action" onchange="toggleRewrite()">
+                    <option value="export">直接导出</option>
+                    <option value="rewrite" selected>AI 改写后导出</option>
+            </select>
+            </div>
+
+            <!-- 改写策略 -->
+            <div class="compose-form-col">
+                <label class="form-label">改写策略</label>
+                <select class="form-select" name="strategy" id="strategy-select">
+                    <option value="REWRITE" selected>深度改写</option>
+                    <option value="PARAPHRASE">伪原创</option>
+                    <option value="STYLE_TRANSFER">风格转换</option>
+                    <option value="SUMMARIZE">摘要</option>
+                    <option value="EXPAND">扩写</option>
+                </select>
+            </div>
+
+            <!-- 目标行业 -->
+            <div class="compose-form-col">
+                <label class="form-label">
+                    目标行业（可选）
+                    <span class="form-label-hint">按行业语境改写</span>
+                </label>
+                <input class="form-input" name="industry" placeholder="如：美妆、金融科技、医疗...">
+            </div>
+
+            <!-- 翻译选项 -->
+            <div class="compose-form-col">
+                <label class="form-label">翻译选项</label>
+                <div class="compose-checkbox-wrapper">
+                    <input type="checkbox" id="compose-translate" name="translate" value="yes">
+                    <label for="compose-translate">英文先翻译成中文</label>
+                </div>
+            </div>
+
+            <!-- 字数控制 -->
+            <div class="compose-form-col">
+                <label class="form-label">
+                    字数控制（可选）
+                    <span class="form-label-hint">不填则不限制</span>
+                </label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <input type="number" class="form-input" name="word_count_min" id="word-count-min" placeholder="最小" min="1" style="width:80px;">
+                    <span style="color:#999;">-</span>
+                    <input type="number" class="form-input" name="word_count_max" id="word-count-max" placeholder="最大" min="1" style="width:80px;">
+                </div>
+                <div style="font-size:11px;color:#999;margin-top:4px;">中文按字符数，英文按字符数</div>
+            </div>
+
+            <!-- 导出格式 -->
+            <div class="compose-form-col">
+                <label class="form-label">导出格式</label>
+                <select class="form-select" name="format_type">
+                    <option value="markdown">Markdown</option>
+                    <option value="html">HTML</option>
+                    <option value="json">JSON</option>
+                    <option value="txt">纯文本</option>
+                    <option value="xiaohongshu">小红书</option>
+                </select>
+            </div>
+
+            <!-- 处理按钮 -->
+            <div class="compose-button-col">
+                <div class="form-label-spacer"></div> <!-- label spacer -->
+                <button type="submit" class="btn btn-primary" id="compose-submit-btn">
+                    🚀 处理
+                </button>
+                <div id="compose-hint" class="compose-hint"></div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- 任务状态 -->
+<div id="compose-status" class="compose-status">
+    <div class="task-status" id="compose-task">
+        <span class="spinner"></span>
+        <span>处理中...</span>
+    </div>
+</div>
+
+<!-- 改写结果：左右对照 -->
+<div id="compose-result" class="compose-result">
+    <div class="compare-container">
+        <!-- 左侧：原文 -->
+        <div class="compare-panel original">
+            <div class="compare-panel-header">
+                <span>📄 原文</span>
+            </div>
+            <div id="result-original" class="compare-panel-body">
+                <pre id="original-text"></pre>
+            </div>
+        </div>
+
+        <!-- 右侧：改写后 -->
+        <div class="compare-panel rewritten">
+            <div class="compare-panel-header">
+                <span>✨ 改写后</span>
+                <span id="result-strategy" class="strategy-badge"></span>
+            </div>
+            <div id="result-rewritten" class="compare-panel-body">
+                <pre id="result-body"></pre>
+            </div>
+        </div>
+    </div>
+
+    <div class="compose-result-actions">
+        <button class="btn btn-outline btn-sm" onclick="copyResult()">📋 复制改写内容</button>
+        <a id="result-link" href="#" class="btn btn-primary btn-sm">查看详情页 →</a>
+    </div>
+</div>
+
+<!-- 多平台发布区域（初始隐藏） -->
+<div id="publish-section" class="compose-publish" style="display:none;">
+    <div class="card">
+        <h3 style="margin-bottom:12px;">📤 一键发布</h3>
+        <div class="publish-platforms">
+            <label class="publish-checkbox">
+                <input type="checkbox" id="pub-wechat" value="wechat" checked>
+                微信公众号
+            </label>
+            <label class="publish-checkbox">
+                <input type="checkbox" id="pub-zhihu" value="zhihu" checked>
+                知乎专栏
+            </label>
+        </div>
+        <button class="btn btn-primary" id="publish-btn" onclick="handlePublish()">
+            🚀 发布到选中的平台
+        </button>
+        <div id="publish-progress" style="margin-top:12px;display:none;">
+            <div class="publish-platform-progress" id="pub-progress-wechat">
+                <span>微信公众号：</span>
+                <span class="pub-status pending">等待中</span>
+            </div>
+            <div class="publish-platform-progress" id="pub-progress-zhihu">
+                <span>知乎专栏：</span>
+                <span class="pub-status pending">等待中</span>
+            </div>
+        </div>
+        <div id="publish-result" style="margin-top:8px;"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const STRATEGY_NAMES = {
+        'REWRITE': '深度改写',
+        'PARAPHRASE': '伪原创',
+        'STYLE_TRANSFER': '风格转换',
+        'SUMMARIZE': '摘要',
+        'EXPAND': '扩写',
+        'FORMAL': '正式专业'
+    };
+
+    // 动态加载策略下拉框（内置 + 自定义）
+    async function loadStrategyOptions() {
+        try {
+            const res = await authFetch('/api/rewrite-strategies');
+            const data = await res.json();
+            if (!data.success) return;
+
+            const select = document.getElementById('strategy-select');
+            if (!select) return;
+
+            // 清空现有选项
+            select.innerHTML = '';
+
+            // 内置策略 optgroup
+            if (data.builtin && data.builtin.length) {
+                const builtinGroup = document.createElement('optgroup');
+                builtinGroup.label = '内置策略';
+                data.builtin.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s.id;
+                    opt.textContent = s.name;
+                    builtinGroup.appendChild(opt);
+                });
+                select.appendChild(builtinGroup);
+            }
+
+            // 自定义策略 optgroup
+            if (data.custom && data.custom.length) {
+                const customGroup = document.createElement('optgroup');
+                customGroup.label = '自定义策略';
+                data.custom.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = 'custom:' + s.id;
+                    opt.textContent = s.name + (s.is_default ? ' (默认)' : '');
+                    if (s.is_default) opt.selected = true;
+                    customGroup.appendChild(opt);
+                });
+                select.appendChild(customGroup);
+            }
+
+            // 如果没有选中项，选中第一个
+            if (!select.value && select.options.length) {
+                select.selectedIndex = 0;
+            }
+        } catch (e) {
+            console.error('Failed to load strategies:', e);
+        }
+    }
+
+    // 页面加载时立即加载策略
+    loadStrategyOptions();
+
+    function toggleRewrite() {
+        // currently no special UI toggle needed, form submits different action
+    }
+
+    async function handleCompose(e) {
+        e.preventDefault();
+        const form = e.target;
+        const fd = new FormData(form);
+
+        // 立即禁用按钮，防止重复点击 + 视觉反馈
+        const btn = document.getElementById('compose-submit-btn');
+        btn.disabled = true;
+        btn.innerHTML = '⏳ 处理中...';
+
+        // 显示原文
+        const originalContent = document.getElementById('compose-content').value;
+        document.getElementById('original-text').textContent = originalContent;
+
+        document.getElementById('compose-status').style.display = 'block';
+        document.getElementById('compose-result').style.display = 'none';
+        let data;
+        try {
+            data = await apiPost('/api/compose', fd);
+        } catch (err) {
+            btn.disabled = false;
+            btn.innerHTML = '🚀 处理';
+            showToast('请求失败: ' + err.message, 'error');
+            return;
+        }
+
+        if (data.task_id) {
+            showToast('任务已启动', 'info');
+            pollTask(data.task_id, fd.get('strategy') || 'REWRITE', btn);
+        }
+    }
+
+    async function pollTask(taskId, strategy, submitBtn) {
+        const poll = async () => {
+            const resp = await fetch('/api/tasks/' + taskId);
+            const task = await resp.json();
+            const el = document.getElementById('compose-task');
+
+            if (task.status === 'done') {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '🚀 处理';
+                el.innerHTML = `<span class="task-dot done"></span><span>${task.message}</span>`;
+                showToast(task.message, 'success');
+                document.getElementById('result-strategy').textContent = STRATEGY_NAMES[strategy] || strategy;
+
+                const articleId = task.result && task.result.article_id;
+                if (articleId) {
+                    const detailResp = await fetch('/api/articles/' + articleId);
+                    const detail = await detailResp.json();
+                    if (detail.content) {
+                        document.getElementById('result-body').textContent = detail.content;
+                        const link = document.getElementById('result-link');
+                        link.href = '/articles/' + articleId;
+                        link.style.display = 'inline-block';
+                    }
+                }
+                document.getElementById('compose-result').style.display = 'block';
+                // 改写完成后显示一键发布区域
+                document.getElementById('publish-section').style.display = 'block';
+                return;
+            } else if (task.status === 'error') {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '🚀 处理';
+                el.innerHTML = `<span class="task-dot error"></span><span>${task.message}</span>`;
+                showToast(task.message, 'error');
+                return;
+            } else {
+                // 改进度条（轮询兜底）
+                if (task.progress !== undefined) {
+                    const bar = el.querySelectorAll('.task-progress-bar');
+                    const txt = el.querySelectorAll('.task-progress-text');
+                    if (bar.length) bar[0].style.width = task.progress + '%';
+                    if (txt.length) txt[0].textContent = task.progress + '%';
+                }
+                el.querySelector('span:last-child').textContent = task.message || '处理中...';
+                setTimeout(poll, 2000);
+            }
+        };
+        setTimeout(poll, 1500);
+    }
+
+    function copyResult() {
+        const text = document.getElementById('result-body').textContent;
+        navigator.clipboard.writeText(text).then(() => showToast('已复制', 'success'));
+    }
+
+    function onTaskUpdate(msg) {
+        if (msg.status === 'done') {
+            const el = document.getElementById('compose-task');
+            if (el) el.innerHTML = `<span class="task-dot done"></span><span>${msg.message}</span>`;
+            showToast(msg.message, 'success');
+        }
+    }
+
+    // 前端输入校验：不足 20 字禁用改写按钮
+    (function () {
+        const MIN_LEN = 20;
+        const contentEl = document.getElementById('compose-content');
+        const actionEl = document.getElementById('compose-action');
+        const btnEl = document.getElementById('compose-submit-btn');
+        const hintEl = document.getElementById('compose-hint');
+
+        function updateButtonState() {
+            const len = contentEl.value.trim().length;
+            const isRewrite = actionEl.value === 'rewrite';
+
+            btnEl.disabled = false;
+            hintEl.style.display = 'none';
+
+            if (isRewrite && len > 0 && len < MIN_LEN) {
+                btnEl.disabled = true;
+                hintEl.textContent = `还需要输入 ${MIN_LEN - len} 个字`;
+                hintEl.style.color = '#e74c3c';
+                hintEl.style.display = 'block';
+            }
+        }
+
+        contentEl.addEventListener('input', updateButtonState);
+        actionEl.addEventListener('change', updateButtonState);
+        updateButtonState();
+    })();
+
+    // ===== 多平台一键发布函数 =====
+
+    let publishArticleId = null;
+
+    function showPublishSection(articleId) {
+        publishArticleId = articleId;
+        document.getElementById('publish-section').style.display = 'block';
+    }
+
+    async function handlePublish() {
+        // 收集选中的平台
+        const platforms = [];
+        if (document.getElementById('pub-wechat').checked) platforms.push('wechat');
+        if (document.getElementById('pub-zhihu').checked) platforms.push('zhihu');
+
+        if (platforms.length === 0) {
+            showToast('请至少选择一个发布平台', 'error');
+            return;
+        }
+
+        if (!publishArticleId) {
+            showToast('没有可发布的文章', 'error');
+            return;
+        }
+
+        // 显示进度区域
+        document.getElementById('publish-progress').style.display = 'block';
+        document.getElementById('publish-result').textContent = '';
+        document.getElementById('publish-btn').disabled = true;
+
+        // 重置平台状态
+        ['wechat', 'zhihu'].forEach(p => {
+            const el = document.querySelector('#pub-progress-' + p + ' .pub-status');
+            if (el) {
+                el.textContent = '发布中...';
+                el.className = 'pub-status publishing';
+            }
+        });
+
+        try {
+            const resp = await fetch('/api/publish', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    article_id: parseInt(publishArticleId),
+                    platforms: platforms,
+                    options: {}
+                })
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json();
+                showToast('发布失败: ' + (err.detail || '未知错误'), 'error');
+                document.getElementById('publish-btn').disabled = false;
+                return;
+            }
+
+            const data = await resp.json();
+            showToast('发布任务已启动', 'info');
+            pollPublishTask(data.task_id);
+        } catch (e) {
+            showToast('网络错误: ' + e.message, 'error');
+            document.getElementById('publish-btn').disabled = false;
+        }
+    }
+
+    async function pollPublishTask(taskId) {
+        const poll = async () => {
+            try {
+                const resp = await fetch('/api/publish/' + taskId);
+                if (!resp.ok) {
+                    showToast('查询发布进度失败', 'error');
+                    document.getElementById('publish-btn').disabled = false;
+                    return;
+                }
+
+                const task = await resp.json();
+                const results = task.results || [];
+                const allDone = results.length > 0;
+
+                // 更新每个平台的发布进度
+                results.forEach(r => {
+                    const el = document.querySelector('#pub-progress-' + r.platform + ' .pub-status');
+                    if (!el) return;
+                    if (r.success) {
+                        el.textContent = '✅ 发布成功';
+                        el.className = 'pub-status success';
+                    } else {
+                        el.textContent = '❌ 发布失败: ' + (r.error || '未知错误');
+                        el.className = 'pub-status error';
+                    }
+                });
+
+                if (task.status === 'done') {
+                    document.getElementById('publish-btn').disabled = false;
+                    const successCount = results.filter(r => r.success).length;
+                    document.getElementById('publish-result').textContent = 
+                        '✅ 发布完成：' + successCount + '/' + results.length + ' 个平台发布成功';
+                    showToast('发布完成', 'success');
+                    return;
+                }
+
+                if (task.status === 'error') {
+                    document.getElementById('publish-btn').disabled = false;
+                    document.getElementById('publish-result').textContent = '❌ 发布任务出错';
+                    showToast('发布任务出错', 'error');
+                    return;
+                }
+
+                // 如果还有未完成的平台，继续轮询
+                if (results.length < (task.platforms || []).length) {
+                    setTimeout(poll, 2000);
+                } else {
+                    // 所有平台都有结果但任务未标记完成
+                    setTimeout(poll, 3000);
+                }
+            } catch (e) {
+                showToast('轮询出错: ' + e.message, 'error');
+                setTimeout(poll, 5000);
+            }
+        };
+
+        setTimeout(poll, 1500);
+    }
+</script>
+{% endblock %}

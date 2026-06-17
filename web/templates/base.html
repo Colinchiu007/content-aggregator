@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<!--
+  DESIGN SYSTEM ACTIVE: Cold Modern Theme
+  - No inline styles allowed (use style-pages.css)
+  - See DESIGN-SYSTEM.md for full guidelines
+  - CSS classes: .card, .filter-bar, .article-tags, etc.
+  - All new styles MUST go to style-pages.css
+-->
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Content Aggregator{% endblock %}</title>
+    
+    <!-- Google Fonts: JetBrains Mono + Playfair Display -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- 冷峻现代主题（增量覆盖） -->
+    <link rel="stylesheet" href="/static/style-cold-modern.css">
+    <!-- 页面特定优化 -->
+    <link rel="stylesheet" href="/static/style-pages.css">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <div class="layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-logo">📰 Content Aggregator</div>
+            <nav class="sidebar-nav">
+                <a href="/" {% if active_page == 'dashboard' %}class="active"{% endif %}>📊 仪表盘</a>
+                <a href="/articles" {% if active_page == 'articles' %}class="active"{% endif %}>📝 文章列表</a>
+                <a href="/sources" {% if active_page == 'sources' %}class="active"{% endif %}>🔌 数据源</a>
+                <a href="/settings" {% if active_page == 'settings' %}class="active"{% endif %}>⚙️ 数据源配置</a>
+                <a href="/system-settings" {% if active_page == 'system_settings' %}class="active"{% endif %}>🤖 模型API设置</a>
+                <a href="/collect-link" {% if active_page == 'collect_link' %}class="active"{% endif %}>📎 链接采集</a>
+                <a href="/compose" {% if active_page == 'compose' %}class="active"{% endif %}>✏️ 单篇改写</a>
+                <a href="/rewrite-strategies" {% if active_page == 'rewrite_strategies' %}class="active"{% endif %}>🪄 改写策略</a>
+                <a href="/tasks" {% if active_page == 'tasks' %}class="active"{% endif %}>⏳ 任务列表</a>
+                <a href="/scheduler" {% if active_page == 'scheduler' %}class="active"{% endif %}>🕐 定时调度</a>
+                <a href="/wechat-settings" {% if active_page == 'wechat' %}class="active"{% endif %}>📱 微信发布</a>
+            </nav>
+            <!-- 用户信息区 -->
+            <div class="sidebar-user" id="sidebar-user" style="display:none; border-top:1px solid #e1e5eb; padding:16px; margin-top:16px;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#667eea,#764ba2);color:white;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;" id="user-avatar">U</div>
+                    <div style="flex:1;">
+                        <div style="font-weight:500;color:#333;font-size:14px;" id="user-username">-</div>
+                        <div style="font-size:12px;color:#666;" id="user-role">用户</div>
+                    </div>
+                </div>
+                <button onclick="logout()" style="width:100%;margin-top:12px;padding:8px;border:1px solid #e1e5eb;background:white;border-radius:6px;cursor:pointer;color:#666;font-size:13px;">
+                    退出登录
+                </button>
+            </div>
+            <div class="sidebar-login" id="sidebar-login" style="border-top:1px solid #e1e5eb; padding:16px; margin-top:16px;">
+                <a href="/login" style="display:block;padding:8px 0;color:#667eea;text-align:center;text-decoration:none;font-weight:500;">登录</a>
+                <a href="/register" style="display:block;padding:8px 0;color:#666;text-align:center;text-decoration:none;font-size:13px;">注册</a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- 弹窗通用样式（所有页面共享） -->
+    <style>
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; display: none; }
+        .modal-overlay.active { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: #fff; border-radius: 12px; max-width: 680px; width: 90%; max-height: 85vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 1px solid #eee; }
+        .modal-header h3 { margin: 0; font-size: 18px; }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
+        .modal-body { padding: 20px 24px; }
+        .modal-footer { display: flex; gap: 10px; justify-content: flex-end; padding: 16px 24px; border-top: 1px solid #eee; }
+    </style>
+
+    <script>
+
+        // Toast 通知（节流防抖：500ms 内相同消息只弹一次）
+        let _toastLastMsg = '';
+        let _toastTimer = null;
+        function showToast(message, type = 'info', onClick = null) {
+            // 节流：相同消息 500ms 内不重复弹出
+            if (message === _toastLastMsg) {
+                if (_toastTimer) return; // 正在等待中，跳过
+                _toastTimer = setTimeout(() => { _toastTimer = null; }, 500);
+                return;
+            }
+            _toastLastMsg = message;
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            
+            // 如果提供 onClick 回调，让 toast 可点击
+            if (onClick && typeof onClick === 'function') {
+                toast.style.cursor = 'pointer';
+                toast.addEventListener('click', () => {
+                    onClick();
+                    toast.remove();
+                });
+            }
+            
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        // 工具函数
+        function formatTime(iso) {
+            if (!iso) return '-';
+            const d = new Date(iso);
+            return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+        }
+
+        function truncate(str, len) {
+            if (!str) return '';
+            return str.length > len ? str.slice(0, len) + '...' : str;
+        }
+
+        async function apiPost(url, formData) {
+            const resp = await fetch(url, { method: 'POST', body: formData });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.detail || data.message || `请求失败 (${resp.status})`);
+            return data;
+        }
+
+        async function apiDelete(url) {
+            const resp = await fetch(url, { method: 'DELETE' });
+            return resp.json();
+        }
+
+        // ========================================================================
+        // WebSocket 实时任务进度
+        // ========================================================================
+
+        let ws = null;
+        let wsReconnectDelay = 1000;
+        const WS_MAX_RECONNECT_DELAY = 30000;
+
+        // 任务更新处理器注册表（页面可以注册自定义处理器）
+        const taskUpdateHandlers = [];
+
+        function registerTaskUpdateHandler(handler) {
+            taskUpdateHandlers.push(handler);
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('[WS] 已连接');
+                wsReconnectDelay = 1000;  // 重置重连延迟
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('[WS] 收到消息:', data);
+
+                    // 处理任务更新消息
+                    if (data.type === 'task_update') {
+                        handleTaskUpdate(data);
+                    }
+                } catch (e) {
+                    console.error('[WS] 解析消息失败:', e);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('[WS] 连接关闭，尝试重连...');
+                setTimeout(connectWebSocket, wsReconnectDelay);
+                wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_MAX_RECONNECT_DELAY);
+            };
+
+            ws.onerror = (error) => {
+                console.error('[WS] 错误:', error);
+            };
+        }
+
+        function handleTaskUpdate(data) {
+            const { task_id, status, message, progress, result } = data;
+
+            // 初始化状态跟踪对象（如果不存在）
+            if (!handleTaskUpdate.lastStatus) {
+                handleTaskUpdate.lastStatus = {};
+            }
+
+            // 只在状态变化时显示 Toast（避免进度更新时重复弹出）
+            const lastStatus = handleTaskUpdate.lastStatus[task_id];
+            if (status !== lastStatus) {
+                handleTaskUpdate.lastStatus[task_id] = status;
+
+                // 点击 Toast 跳转到任务列表
+                const onClick = () => { window.location.href = '/tasks'; };
+
+                if (status === 'running') {
+                    showToast('⏳ 任务开始: ' + message, 'info', onClick);
+                } else if (status === 'done') {
+                    // 如果有 result 统计信息，显示详细消息
+                    let doneMsg = '✅ 任务完成: ' + message;
+                    if (result && result.summary) {
+                        const s = result.summary;
+                        const startTime = result.start_time ? formatTime(result.start_time) : '';
+                        const endTime = result.end_time ? formatTime(result.end_time) : '';
+                        doneMsg = `✅ ${message}: ${s.success || 0} 个任务成功，${s.total_articles || 0} 篇`;
+                        if (startTime && endTime) {
+                            doneMsg += ` · 开始于 ${startTime} · 完成于 ${endTime}`;
+                        }
+                    }
+                    showToast(doneMsg, 'success', onClick);
+                } else if (status === 'error') {
+                    showToast('❌ 任务失败: ' + message, 'error', onClick);
+                }
+            }
+
+            // 调用所有注册的处理器
+            taskUpdateHandlers.forEach(handler => {
+                try {
+                    handler(data);
+                } catch (e) {
+                    console.error('[WS] 处理器错误:', e);
+                }
+            });
+
+            // 更新页面上的任务状态（通用逻辑）
+            updateTaskUI(task_id, status, message, progress);
+        }
+
+        function updateTaskUI(taskId, status, message, progress) {
+            // 更新任务列表页面（/tasks）
+            const taskElement = document.querySelector(`[data-task-id="${taskId}"]`);
+            if (taskElement) {
+                const statusBadge = taskElement.querySelector('.task-status-badge');
+                const messageEl = taskElement.querySelector('.task-message');
+                const progressBar = taskElement.querySelector('.task-progress-bar');
+                const progressText = taskElement.querySelector('.task-progress-text');
+
+                if (statusBadge) {
+                    statusBadge.className = `badge task-status-badge badge-${getStatusBadgeClass(status)}`;
+                    statusBadge.textContent = getStatusText(status);
+                }
+                if (messageEl) messageEl.textContent = message || '';
+                if (progressBar && progress !== undefined) {
+                    progressBar.style.width = `${progress}%`;
+                }
+                if (progressText && progress !== undefined) {
+                    progressText.textContent = `${progress}%`;
+                }
+            }
+
+            // 更新仪表盘页面（/）的最近任务
+            const recentTaskEl = document.querySelector(`[data-recent-task-id="${taskId}"]`);
+            if (recentTaskEl) {
+                const statusDot = recentTaskEl.querySelector('.task-dot');
+                const statusText = recentTaskEl.querySelector('.task-status-text');
+                if (statusDot) {
+                    statusDot.className = `task-dot ${status}`;
+                }
+                if (statusText) statusText.textContent = getStatusText(status);
+            }
+        }
+
+        function getStatusBadgeClass(status) {
+            const map = {
+                'pending': 'warning',
+                'running': 'primary',
+                'done': 'success',
+                'error': 'danger'
+            };
+            return map[status] || 'muted';
+        }
+
+        function getStatusText(status) {
+            const map = {
+                'pending': '等待中',
+                'running': '进行中',
+                'done': '已完成',
+                'error': '失败'
+            };
+            return map[status] || status;
+        }
+
+        // 页面加载时连接 WebSocket
+        document.addEventListener('DOMContentLoaded', () => {
+            connectWebSocket();
+
+            // 定时发送心跳（保持连接）
+            setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send('ping');
+                }
+            }, 30000);
+
+            // 初始化认证状态
+            initAuth();
+        });
+
+        // ========================================================================
+        // 认证管理
+        // ========================================================================
+
+        let currentUser = null;
+
+        function initAuth() {
+            const token = localStorage.getItem('auth_token');
+            const userStr = localStorage.getItem('user_info');
+            const publicPaths = ['/login', '/register'];
+            const isPublic = publicPaths.some(p => window.location.pathname === p);
+            
+            if (token && userStr) {
+                try {
+                    currentUser = JSON.parse(userStr);
+                    updateAuthUI(true);
+                    // 验证 token 是否仍然有效
+                    fetch('/api/auth/me', {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    })
+                    .then(r => {
+                        if (!r.ok) {
+                            logout();
+                            if (!isPublic) {
+                                window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+                            }
+                        }
+                    })
+                    .catch(() => {
+                        // 忽略网络错误
+                    });
+                } catch (e) {
+                    localStorage.removeItem('auth_token');
+                    localStorage.removeItem('user_info');
+                    updateAuthUI(false);
+                    if (!isPublic) {
+                        window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+                    }
+                }
+            } else {
+                updateAuthUI(false);
+                // 未登录且不在公开页面时重定向到登录页
+                if (!isPublic) {
+                    window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname);
+                }
+            }
+        }
+
+        function updateAuthUI(isLoggedIn) {
+            const userEl = document.getElementById('sidebar-user');
+            const loginEl = document.getElementById('sidebar-login');
+            
+            if (isLoggedIn && currentUser) {
+                userEl.style.display = 'block';
+                loginEl.style.display = 'none';
+                document.getElementById('user-username').textContent = currentUser.username || '用户';
+                document.getElementById('user-role').textContent = currentUser.role === 'admin' ? '管理员' : '用户';
+                document.getElementById('user-avatar').textContent = (currentUser.username || 'U').charAt(0).toUpperCase();
+            } else {
+                userEl.style.display = 'none';
+                loginEl.style.display = 'block';
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_info');
+            currentUser = null;
+            updateAuthUI(false);
+            showToast('已退出登录', 'info');
+            // 如果当前在受保护的页面，跳转到登录页
+            const protectedPaths = ['/settings', '/system-settings', '/compose', '/rewrite-strategies', '/tasks', '/scheduler'];
+            if (protectedPaths.some(p => window.location.pathname.startsWith(p))) {
+                window.location.href = '/login';
+            }
+        }
+
+        // 获取认证头（不强制 Content-Type，兼容 FormData 和 JSON）
+        function getAuthHeaders() {
+            const token = localStorage.getItem('auth_token');
+            const headers = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
+        }
+
+        // 封装 fetch 自动注入 token 和处理 401
+        async function authFetch(url, options = {}) {
+            const headers = { ...options.headers, ...getAuthHeaders() };
+            
+            const resp = await fetch(url, { ...options, headers });
+            
+            // 处理 401 未授权
+            if (resp.status === 401) {
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('user_info');
+                showToast('登录已过期，请重新登录', 'error');
+                // 如果不是登录/注册页，跳转到登录页
+                if (!['/login', '/register'].includes(window.location.pathname)) {
+                    setTimeout(() => {
+                        window.location.href = '/login';
+                    }, 1000);
+                }
+                return resp;
+            }
+            
+            return resp;
+        }
+
+        // 覆盖原有的 apiPost 和 apiDelete 使用认证
+        async function apiPost(url, formData) {
+            const resp = await authFetch(url, { method: 'POST', body: formData });
+            if (!resp.ok) {
+                const data = await resp.json();
+                throw new Error(data.detail || data.message || `请求失败 (${resp.status})`);
+            }
+            return resp.json();
+        }
+
+        async function apiDelete(url) {
+            const resp = await authFetch(url, { method: 'DELETE' });
+            return resp.json();
+        }
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
