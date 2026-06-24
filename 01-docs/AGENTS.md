@@ -1,228 +1,178 @@
-# AGENTS.md - Your Workspace
-
-This folder is home. Treat it that way.
-
-## First Run
-
-If `BOOTSTRAP.md` exists, that's your birth certificate. Follow it, figure out who you are, then delete it. You won't need it again.
-
-## Session Startup
-
-Before doing anything else:
-
-1. Read `SOUL.md` — this is who you are
-2. Read `USER.md` — this is who you're helping
-3. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-4. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
-
-Don't ask permission. Just do it.
-
-## Memory
-
-You wake up fresh each session. These files are your continuity:
-
-- **Daily notes:** `memory/YYYY-MM-DD.md` (create `memory/` if needed) — raw logs of what happened
-- **Long-term:** `MEMORY.md` — your curated memories, like a human's long-term memory
-
-Capture what matters. Decisions, context, things to remember. Skip the secrets unless asked to keep them.
-
-### 🧠 MEMORY.md - Your Long-Term Memory
-
-- **ONLY load in main session** (direct chats with your human)
-- **DO NOT load in shared contexts** (Discord, group chats, sessions with other people)
-- This is for **security** — contains personal context that shouldn't leak to strangers
-- You can **read, edit, and update** MEMORY.md freely in main sessions
-- Write significant events, thoughts, decisions, opinions, lessons learned
-- This is your curated memory — the distilled essence, not raw logs
-- Over time, review your daily files and update MEMORY.md with what's worth keeping
-
-### 📝 Write It Down - No "Mental Notes"!
-
-- **Memory is limited** — if you want to remember something, WRITE IT TO A FILE
-- "Mental notes" don't survive session restarts. Files do.
-- When someone says "remember this" → update `memory/YYYY-MM-DD.md` or relevant file
-- When you learn a lesson → update AGENTS.md, TOOLS.md, or the relevant skill
-- When you make a mistake → document it so future-you doesn't repeat it
-- **Text > Brain** 📝
-
-## Red Lines
-
-- Don't exfiltrate private data. Ever.
-- Don't run destructive commands without asking.
-- `trash` > `rm` (recoverable beats gone forever)
-- When in doubt, ask.
-
-## External vs Internal
-
-**Safe to do freely:**
-
-- Read files, explore, organize, learn
-- Search the web, check calendars
-- Work within this workspace
-
-**Ask first:**
-
-- Sending emails, tweets, public posts
-- Anything that leaves the machine
-- Anything you're uncertain about
-
-## Group Chats
-
-You have access to your human's stuff. That doesn't mean you _share_ their stuff. In groups, you're a participant — not their voice, not their proxy. Think before you speak.
-
-### 💬 Know When to Speak!
-
-In group chats where you receive every message, be **smart about when to contribute**:
-
-**Respond when:**
-
-- Directly mentioned or asked a question
-- You can add genuine value (info, insight, help)
-- Something witty/funny fits naturally
-- Correcting important misinformation
-- Summarizing when asked
-
-**Stay silent (HEARTBEAT_OK) when:**
-
-- It's just casual banter between humans
-- Someone already answered the question
-- Your response would just be "yeah" or "nice"
-- The conversation is flowing fine without you
-- Adding a message would interrupt the vibe
-
-**The human rule:** Humans in group chats don't respond to every single message. Neither should you. Quality > quantity. If you wouldn't send it in a real group chat with friends, don't send it.
-
-**Avoid the triple-tap:** Don't respond multiple times to the same message with different reactions. One thoughtful response beats three fragments.
-
-Participate, don't dominate.
-
-### 😊 React Like a Human!
-
-On platforms that support reactions (Discord, Slack), use emoji reactions naturally:
-
-**React when:**
-
-- You appreciate something but don't need to reply (👍, ❤️, 🙌)
-- Something made you laugh (😂, 💀)
-- You find it interesting or thought-provoking (🤔, 💡)
-- You want to acknowledge without interrupting the flow
-- It's a simple yes/no or approval situation (✅, 👀)
-
-**Why it matters:**
-Reactions are lightweight social signals. Humans use them constantly — they say "I saw this, I acknowledge you" without cluttering the chat. You should too.
-
-**Don't overdo it:** One reaction per message max. Pick the one that fits best.
-
-## 🧠 GBrain Auto-Capture (MANDATORY)
-
-**Before processing ANY user message, you MUST:**
-
-1. Read `GBRAIN.md` (if not already loaded)
-2. Execute entity detection (people/companies/projects/concepts)
-3. Query brain for each detected entity (`gbrain search` + `gbrain query`)
-4. Create/update brain pages in background (non-blocking)
-5. Log timeline entries for dated events
-
-**Rule: This is NOT optional. Every message triggers detection unless it's a pure operational command ("ok", "thanks", "do it").**
-
-> See `GBRAIN.md` for full implementation details.
-
----
-
-## Tools
-
-Skills provide your tools. When you need one, check its `SKILL.md`. Keep local notes (camera names, SSH details, voice preferences) in `TOOLS.md`.
-
-**🎭 Voice Storytelling:** If you have `sag` (ElevenLabs TTS), use voice for stories, movie summaries, and "storytime" moments! Way more engaging than walls of text. Surprise people with funny voices.
-
-**📝 Platform Formatting:**
-
-- **Discord/WhatsApp:** No markdown tables! Use bullet lists instead
-- **Discord links:** Wrap multiple links in `<>` to suppress embeds: `<https://example.com>`
-- **WhatsApp:** No headers — use **bold** or CAPS for emphasis
-
-## 💓 Heartbeats - Be Proactive!
-
-When you receive a heartbeat poll (message matches the configured heartbeat prompt), don't just reply `HEARTBEAT_OK` every time. Use heartbeats productively!
-
-Default heartbeat prompt:
-`Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.`
-
-You are free to edit `HEARTBEAT.md` with a short checklist or reminders. Keep it small to limit token burn.
-
-### Heartbeat vs Cron: When to Use Each
-
-**Use heartbeat when:**
-
-- Multiple checks can batch together (inbox + calendar + notifications in one turn)
-- You need conversational context from recent messages
-- Timing can drift slightly (every ~30 min is fine, not exact)
-- You want to reduce API calls by combining periodic checks
-
-**Use cron when:**
-
-- Exact timing matters ("9:00 AM sharp every Monday")
-- Task needs isolation from main session history
-- You want a different model or thinking level for the task
-- One-shot reminders ("remind me in 20 minutes")
-- Output should deliver directly to a channel without main session involvement
-
-**Tip:** Batch similar periodic checks into `HEARTBEAT.md` instead of creating multiple cron jobs. Use cron for precise schedules and standalone tasks.
-
-**Things to check (rotate through these, 2-4 times per day):**
-
-- **Emails** - Any urgent unread messages?
-- **Calendar** - Upcoming events in next 24-48h?
-- **Mentions** - Twitter/social notifications?
-- **Weather** - Relevant if your human might go out?
-
-**Track your checks** in `memory/heartbeat-state.json`:
-
-```json
-{
-  "lastChecks": {
-    "email": 1703275200,
-    "calendar": 1703260800,
-    "weather": null
-  }
-}
+# content-aggregator (HotRewrite v2) — 开发规范
+
+> 内容采集 + AI 改写 + 多平台发布平台
+
+## 项目定位
+
+HotRewrite v2 是一站式内容改写与发布平台，属于一站式视频生成平台的内容生产环节。用户通过 URL 或手动输入内容，经 AI 改写后发布到多平台。
+
+数据流: **URL 采集 → AI 改写 → 多平台发布**
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| **后端** | Python 3.12+ / FastAPI / SQLAlchemy 2.0 (async) |
+| **前端** | Vue 3 + TypeScript + Element Plus + Pinia + Vue Router |
+| **数据库** | PostgreSQL 15 (asyncpg) |
+| **缓存** | Redis 7 |
+| **AI** | OpenAI 兼容 API (gpt-4o-mini 等) |
+| **迁移** | Alembic |
+
+## 目录结构
+
+```
+content-aggregator/
+├── backend/
+│   ├── app/
+│   │   ├── main.py              # FastAPI app factory (create_app)
+│   │   ├── config.py            # pydantic-settings 配置
+│   │   ├── database.py          # Async SQLAlchemy engine + session
+│   │   ├── api/
+│   │   │   ├── deps.py          # get_db, get_current_user DI
+│   │   │   └── v1/
+│   │   │       ├── router.py    # 路由聚合 + /health
+│   │   │       ├── auth.py      # 注册/登录/用户信息
+│   │   │       ├── articles.py  # 文章 CRUD
+│   │   │       ├── collector.py # URL 采集
+│   │   │       ├── rewriter.py  # AI 改写
+│   │   │       └── publisher.py # 发布
+│   │   ├── core/
+│   │   │   ├── security.py      # JWT (HS256) + bcrypt
+│   │   │   └── exceptions.py    # 异常层次
+│   │   ├── models/              # ORM: User, Article, PublishLog
+│   │   ├── schemas/             # Pydantic 请求/响应模型
+│   │   └── services/
+│   │       ├── collector.py     # httpx + trafilatura 网页抓取
+│   │       ├── rewriter.py      # LLM API 调用 (60s 超时)
+│   │       └── publisher.py     # 发布任务管理
+│   ├── tests/
+│   │   ├── conftest.py          # async_client (ASGITransport)
+│   │   └── test_api/            # 测试用例（待补充）
+│   └── alembic/                 # 数据库迁移
+├── frontend/
+│   ├── src/
+│   │   ├── router/index.ts      # 7 条路由，含 auth guard
+│   │   ├── views/               # 7 个页面
+│   │   ├── components/          # UI 组件
+│   │   ├── api/                 # Axios + 拦截器
+│   │   ├── stores/              # Pinia 状态管理
+│   │   └── types/               # TypeScript 类型定义
+│   └── tests/
+├── 02-source/                   # PRD、架构设计、商业分析文档
+└── _archive_v1/                 # v1 老代码 (Python+Jinja2+SQLite)
 ```
 
-**When to reach out:**
+## API 端点
 
-- Important email arrived
-- Calendar event coming up (&lt;2h)
-- Something interesting you found
-- It's been >8h since you said anything
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/auth/register` | 用户注册 |
+| POST | `/api/v1/auth/login` | 登录（返回 JWT） |
+| GET | `/api/v1/auth/me` | 当前用户信息 |
+| POST | `/api/v1/collect/url` | URL 内容采集 |
+| POST | `/api/v1/rewrite/` | AI 改写 |
+| POST | `/api/v1/publish/` | 创建发布任务 |
+| GET | `/api/v1/publish/status/{id}` | 发布状态查询 |
+| GET | `/api/v1/articles/` | 文章列表（分页） |
+| GET | `/api/v1/articles/{id}` | 文章详情 |
+| DELETE | `/api/v1/articles/{id}` | 删除文章 |
+| GET | `/api/v1/health` | 健康检查 |
 
-**When to stay quiet (HEARTBEAT_OK):**
+## 核心流程
 
-- Late night (23:00-08:00) unless urgent
-- Human is clearly busy
-- Nothing new since last check
-- You just checked &lt;30 minutes ago
+### 采集 (Collector)
 
-**Proactive work you can do without asking:**
+- `collect_from_url()` — httpx GET + trafilatura extract
+- 15s 超时，Chrome UA，支持重定向
+- 返回结构化内容: title, content (Markdown), word_count
 
-- Read and organize memory files
-- Check on projects (git status, etc.)
-- Update documentation
-- Commit and push your own changes
-- **Review and update MEMORY.md** (see below)
+### 改写 (Rewriter)
 
-### 🔄 Memory Maintenance (During Heartbeats)
+- 4 种风格: 轻松易懂、正式严谨、吸引眼球、深度分析
+- 3 种长度策略: keep (±10%)、compress (-30%)、expand (+30%)
+- OpenAI 兼容 API，60s 超时，temperature 0.7，max 4096 tokens
+- 支持 SEO 优化标志
 
-Periodically (every few days), use a heartbeat to:
+### 发布 (Publisher)
 
-1. Read through recent `memory/YYYY-MM-DD.md` files
-2. Identify significant events, lessons, or insights worth keeping long-term
-3. Update `MEMORY.md` with distilled learnings
-4. Remove outdated info from MEMORY.md that's no longer relevant
+- MVP 阶段仅创建 PublishLog 记录（status=pending）
+- 实际平台发布延后到 Phase 2
 
-Think of it like a human reviewing their journal and updating their mental model. Daily files are raw notes; MEMORY.md is curated wisdom.
+## 关键约定
 
-The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
+### 依赖注入链
 
-## Make It Yours
+Router → Depends(get_db) + Depends(get_current_user) → Service
+不要在 Router 或 Service 中直接访问数据库，通过 `deps.py` 注入。
 
-This is a starting point. Add your own conventions, style, and rules as you figure out what works.
+### 异常层次
+
+```
+HotRewriteException (基类)
+├── NotFoundError (404)
+├── UnauthorizedError (401)
+├── ForbiddenError (403)
+├── ConflictError (409)
+├── ValidationError (422)
+├── ServiceError (502)
+└── CollectError (502)
+```
+
+### JWT 认证
+
+- 算法: HS256，密钥来自 `SECRET_KEY` 环境变量
+- Token 结构: `{sub: user_uuid, username, exp}`
+- 有效期: 默认 60 分钟
+- 通过 `Depends(get_current_user)` 保护端点
+
+### 数据库
+
+- 异步 SQLAlchemy 2.0 (`AsyncSessionLocal`)
+- 连接池: 20 + 10 overflow
+- 自动 commit/rollback（`get_db` async generator）
+
+## 环境变量
+
+见 `backend/app/config.py`：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DATABASE_URL` | postgresql+asyncpg://... | PostgreSQL 连接 |
+| `REDIS_URL` | redis://localhost:6379/0 | Redis 连接 |
+| `SECRET_KEY` | change-me-... | JWT 签名密钥 |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | 60 | JWT 有效期 |
+| `OPENAI_API_KEY` | "" | LLM API 密钥 |
+| `OPENAI_BASE_URL` | https://api.openai.com/v1 | LLM 端点 |
+| `OPENAI_MODEL` | gpt-4o-mini | LLM 模型 |
+| `PORT` | 8000 | 服务端口 |
+| `CORS_ORIGINS` | localhost:5173,3000 | 允许的跨域来源 |
+
+## 常用命令
+
+```bash
+# 安装后端
+cd backend && pip install -e .
+
+# 启动
+uvicorn app.main:app --reload --port 8000
+
+# 前端
+cd frontend && npm install && npm run dev
+
+# 测试
+cd backend && pytest -v
+
+# 数据库迁移
+cd backend && alembic upgrade head
+
+# Docker (PostgreSQL + Redis + 后端)
+docker-compose up -d
+```
+
+## 开发状态
+
+- **Phase 0**: 项目骨架搭建完成（2026-06-15）
+- **MVP**: API 功能可用，测试框架已搭建但测试用例待补充
+- **待办**: 补充测试、实际发布平台对接（Phase 2）
+- **测试**: 测试框架（pytest + pytest-asyncio + ASGITransport）就绪
