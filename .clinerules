@@ -1,0 +1,5 @@
+# .clinerules — content-aggregator 特定硬约束
+
+- rule: "采集来源配置必须通过环境变量管理，禁止硬编码 URL 和 API Key"
+- rule: "AI 改写使用 HotRewrite v2 引擎，不引入其他改写方案"
+- rule: "改写结果必须经过质量评分（质量分低于阈值时告警不阻塞）"
