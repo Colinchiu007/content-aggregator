@@ -1,7 +1,7 @@
 import api from './index'
 import type { ApiResponse, CollectRequest, CollectResult } from '@/types'
 
-const COLLECTOR = '/collector'
+const COLLECTOR = '/collect'
 
 export async function collectUrl(data: CollectRequest): Promise<ApiResponse<CollectResult>> {
   const res = await api.post<ApiResponse<CollectResult>>(`${COLLECTOR}/url`, data)

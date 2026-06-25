@@ -3,6 +3,7 @@
 from pathlib import Path
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # --- JWT 认证 ---
-    SECRET_KEY: str = "change-me-to-a-random-secret-key-in-production"
+    SECRET_KEY: str = ""  # must set PO_SECRET_KEY or SECRET_KEY in environment
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # --- LLM / AI 改写 ---
@@ -44,8 +45,5 @@ class Settings(BaseSettings):
     def ALEMBIC_INI_PATH(self) -> Path:
         return self.PROJECT_ROOT / "alembic.ini"
 
-
-@lru_cache()
-def get_settings() -> Settings:
-    """获取缓存的应用配置单例"""
-    return Settings()
+    @model_validator(mode="after")
+    def _validate_secret_key(se

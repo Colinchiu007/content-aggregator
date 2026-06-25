@@ -1,7 +1,7 @@
 import api from './index'
 import type { ApiResponse, RewriteRequest, RewriteResult } from '@/types'
 
-const REWRITER = '/rewriter'
+const REWRITER = '/rewrite'
 
 export async function rewriteArticle(data: RewriteRequest): Promise<ApiResponse<RewriteResult>> {
   const res = await api.post<ApiResponse<RewriteResult>>(`${REWRITER}/rewrite`, data)

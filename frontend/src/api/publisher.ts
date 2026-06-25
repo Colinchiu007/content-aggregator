@@ -1,7 +1,7 @@
 import api from './index'
 import type { ApiResponse, PublishRequest, PublishStatus } from '@/types'
 
-const PUBLISHER = '/publisher'
+const PUBLISHER = '/publish'
 
 export async function publishArticle(data: PublishRequest): Promise<ApiResponse<PublishStatus>> {
   const res = await api.post<ApiResponse<PublishStatus>>(`${PUBLISHER}/publish`, data)
