@@ -87,3 +87,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 从 `wechat-mp-automation` 衍生，定位调整为通用内容聚合平台
 - 剥离微信公众号发布相关代码（账号权限限制，暂缓）
 - 创建完整项目结构
+
+---
+
+## [Unreleased] 2026-06-26
+
+### Fixed
+- **Publisher service** (`services/publisher.py`): Now dispatches Celery tasks (`ca_publish_to_wx.delay`) for each platform after creating PublishLog records, instead of only creating logs without async execution
+- **Celery task signature** (`tasks.py`): Fixed `ca_publish_to_wx` — now accepts `(article_id, platform)` matching the caller in `create_publish_tasks`. Task calls `_execute_platform_publish` to update PublishLog status
+- **Duplicate modules**: Removed `services/collector.py` and `services/rewriter.py`. Updated all imports in `api/v1/collector.py`, `api/v1/rewriter.py`, `services/__init__.py`, and `tasks.py` to use the standalone `services/collect.py` and `services/rewrite.py`
+- **Auth endpoint** (`api/v1/auth.py`): Fixed `GET /auth/me` to return complete `UserResponse` fields (email, subscription_type)
+
+### Added
+- **Test infrastructure** (`tests/`): Complete pytest + pytest-asyncio setup with:
+  - `conftest.py`: `async_client` fixture (ASGITransport + mocked DB), `test_db`, `make_token`, `mock_celery_app`, `MockScalarResult` helper
+  - `test_api/test_article.py`: 5 tests (list, get, delete CRUD)
+  - `test_api/test_auth.py`: 4 tests (valid/invalid/missing token)
+  - `test_api/test_collect.py`: 3 tests (success, validation, service call)
+  - `test_api/test_publisher.py`: 9 tests (API + service-level, Celery dispatch, NotFoundError cases)
+  - `test_api/test_rewriter.py`: 4 tests (success, not found, validation, options)
+  - **Total: 25 tests, all passing**

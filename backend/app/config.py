@@ -46,4 +46,16 @@ class Settings(BaseSettings):
         return self.PROJECT_ROOT / "alembic.ini"
 
     @model_validator(mode="after")
-    def _validate_secret_key(se
+    def _validate_secret_key(self):
+        if not self.SECRET_KEY:
+            raise ValueError(
+                "SECRET_KEY / PO_SECRET_KEY environment variable is not set. "
+                "Set a strong random key before starting the server."
+            )
+        return self
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    """获取缓存的应用配置单例"""
+    return Settings()
