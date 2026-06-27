@@ -9,7 +9,7 @@
 - [x] Publisher 不再是 stub — `create_publish_tasks` 现在创建 PublishLog 并派发 Celery 异步任务
 - [x] `ca_publish_to_wx` 签名已修复 — 接受 `(article_id, platform)`，与调用方匹配
 - [x] 重复模块已清理 — 删除 `collector.py` 和 `rewriter.py`，保留 `collect.py` 和 `rewrite.py`
-- [x] pyproject.toml — 经检查未指向 `_archive_v1`（已指向 `app`）
+- [x] pyproject.toml — package source 从 `_archive_v1/src/` 迁移到 `src/`（_archive_v1 已清理）
 - [x] CHANGELOG.md 已更新
 - [x] PRD 同步 — 因 `02-source/PRD/` 目录不在可访问范围内，CHANGELOG 中记录了所有变更
 - [x] 所有更改经过 TDD — 先写测试 → 修复代码 → 全部通过

@@ -1,6 +1,6 @@
 """Content Aggregator — thin SDK facade for TrendScope bridge and orchestrator.
 
-Re-exports key capabilities from the _archive_v1 source tree so that
+Re-exports key capabilities from the src/ tree so that
 external consumers (TrendScope bridge, platform-orchestrator) can import
 from a stable package namespace.
 
