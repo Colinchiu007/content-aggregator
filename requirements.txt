@@ -37,3 +37,6 @@ aiofiles>=23.0.0
 
 # Logging
 loguru>=0.7.0
+
+# Shared models
+shared-models @ file:///D:/Data/projects/shared-models

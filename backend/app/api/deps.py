@@ -2,7 +2,6 @@
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
@@ -48,7 +47,7 @@ async def get_current_user(
                 detail="无效的认证令牌",
             )
         return payload
-    except (JWTError, ValueError) as e:
+    except (ValueError) as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"认证令牌无效或已过期: {e}",
