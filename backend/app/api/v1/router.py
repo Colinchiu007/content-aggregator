@@ -7,6 +7,8 @@ from app.api.v1.articles import router as articles_router
 from app.api.v1.collector import router as collector_router
 from app.api.v1.rewriter import router as rewriter_router
 from app.api.v1.publisher import router as publisher_router
+from app.api.v1.proxy import router as proxy_router
+from app.api.v1.tasks import router as tasks_router
 
 api_v1_router = APIRouter(prefix="/api/v1")
 
@@ -16,6 +18,8 @@ api_v1_router.include_router(articles_router)
 api_v1_router.include_router(collector_router)
 api_v1_router.include_router(rewriter_router)
 api_v1_router.include_router(publisher_router)
+api_v1_router.include_router(proxy_router)
+api_v1_router.include_router(tasks_router)
 
 
 # ──────────────────────────────────────────────

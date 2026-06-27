@@ -7,13 +7,19 @@ from app.config import get_settings
 
 settings = get_settings()
 
+# 动态构建引擎参数 — SQLite 不支持 pool_size/max_overflow
+_engine_kwargs: dict = {
+    "echo": settings.DEBUG,
+}
+if not settings.DATABASE_URL.startswith("sqlite"):
+    _engine_kwargs["pool_size"] = 20
+    _engine_kwargs["max_overflow"] = 10
+    _engine_kwargs["pool_pre_ping"] = True
+
 # 异步引擎（echo 仅在 DEBUG 模式下开启，方便开发时查看 SQL）
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    pool_size=20,
-    max_overflow=10,
-    pool_pre_ping=True,
+    **_engine_kwargs,
 )
 
 # 异步会话工厂
@@ -29,7 +35,7 @@ class Base(DeclarativeBase):
     pass
 
 
-async def get_db() -> AsyncSession:  # type: ignore[misc]
+async def get_db() -> AsyncSession:
     """FastAPI 依赖注入 — 获取数据库会话
 
     Yields:
