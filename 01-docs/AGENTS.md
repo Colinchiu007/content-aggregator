@@ -60,7 +60,7 @@ content-aggregator/
 │   │   └── types/               # TypeScript 类型定义
 │   └── tests/
 ├── 02-source/                   # PRD、架构设计、商业分析文档
-└── _archive_v1/                 # v1 老代码 (Python+Jinja2+SQLite)
+└── src/                         # v1 content_aggregator 包源码
 ```
 
 ## API 端点

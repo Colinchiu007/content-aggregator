@@ -47,10 +47,10 @@ Homepage = "https://github.com/Colinchiu007/content-aggregator"
 Repository = "https://github.com/Colinchiu007/content-aggregator"
 
 [tool.setuptools.packages.find]
-where = ["_archive_v1/src"]
+where = ["src"]
 
 [tool.setuptools.package-dir]
-"" = "_archive_v1/src"
+"" = "src"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -8,7 +8,7 @@
 
 ## 🎯 项目方向 (v2)
 
-本项目当前处于 **v2 设计阶段**。v1 "Content Aggregator"（Python + Jinja2 + SQLite）已归档至 [`_archive_v1/`](_archive_v1/)。
+本项目当前处于 **v2 设计阶段**。v1 "Content Aggregator"（Python + Jinja2 + SQLite）代码已清理，参见 Git 历史。
 
 v2 目标：**热文改写一站式平台**，技术栈迁移至 **Vue 3 + PostgreSQL**。
 
@@ -103,7 +103,6 @@ Project001-HotRewrite/
 │   ├── competitor-analysis/  # 竞品分析
 │   └── UI/                # 界面设计
 ├── 03-memory/             # 会话记忆导出
-├── _archive_v1/           # v1 代码归档（Content Aggregator）
 └── CHANGELOG.md           # 变更记录
 ```
 
@@ -161,13 +160,3 @@ npm run dev               # → http://localhost:3000
 
 ---
 
-## ⚠️ v1 代码说明
-
-v1 "Content Aggregator"（~23K LOC Python + Jinja2 + SQLite）提供 RSS 采集、AI 改写、多格式导出等功能，代码完整可用。全部已归档至 [`_archive_v1/`](_archive_v1/)，详见[归档说明](_archive_v1/README.md)。
-
-如需运行 v1：
-```bash
-cd _archive_v1/
-pip install -r ../requirements.txt
-python scripts/run.py --url "https://feeds.feedburner.com/ruanyifeng" --format markdown
-```
