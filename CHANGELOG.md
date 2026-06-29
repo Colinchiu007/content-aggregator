@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **热榜发现模块（F-13 集成路线）** — TrendScope → content-aggregator 热榜集成
+  - `GET /api/v1/trending/platforms` — 获取热门平台列表（代理 TrendScope）
+  - `GET /api/v1/trending` — 聚合热榜数据（12 平台，代理 TrendScope）
+  - `GET /api/v1/trending/{platform}` — 指定平台热榜数据
+  - `POST /api/v1/trending/rewrite` — 一键改写（采集原文→创建文章→跳转改写页）
+  - 前端热榜发现页面：平台 tabs + 排名 + 热度值 + 一键改写按钮
+  - 侧边栏「热榜发现」导航入口
+  - 配置 `TRENDSCOPE_API_URL` 连接 TrendScope 服务
+
 ### Added
+- **PRD 同步** — 更新 v1.5.0~v1.8.0 功能状态，5 项 v1.5.0 功能从 🚧 → ✅
+- **YouTube 采集排序选项** — 后端 API + 前端 SettingsView 下拉框配置
+- **封面管理模块（v2 实现）** — cover_router + 前端 SettingsView 集成
+- **前端重设计「信息实验室」** — 品牌升级 + 布局重构 + 暗色模式
+  - 品牌从 HotRewrite 升级为「信息实验室」
+  - 新增深色侧边栏导航（可折叠），顶部导航精简为用户菜单
+  - 全新设计系统 CSS 变量（`--il-*`），支持明暗主题切换
+  - 所有页面统一空状态、加载骨架屏、页面过渡动画
+  - 响应式布局（平板端自适应）
+  - 首页快捷操作卡片 + 全新 Hero 区域
+
+  - `POST /covers/generate` — DALL-E 3 AI 封面生成（多 Provider 扩展架构）
+  - `GET /covers` — 已生成封面列表
+  - `POST /covers/default` — 上传默认封面
+  - `GET /covers/default` — 获取默认封面信息
+  - `DELETE /covers/default` — 删除默认封面
+  - 前端设置页封面管理区：默认封面上传/预览/删除、AI 生成、封面画廊
+
 - **Content Filtering Module** (`processors/filter/`)
   - `sensitive.py` - 敏感词过滤器（DFA 算法，支持自定义词库、白名单、拼音检测）
   - `dedup.py` - 相似度去重（SimHash + MinHash 双重算法）
@@ -104,6 +131,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `test_api/test_article.py`: 5 tests (list, get, delete CRUD)
   - `test_api/test_auth.py`: 4 tests (valid/invalid/missing token)
   - `test_api/test_collect.py`: 3 tests (success, validation, service call)
-  - `test_api/test_publisher.py`: 9 tests (API + service-level, Celery dispatch, NotFoundError cases)
-  - `test_api/test_rewriter.py`: 4 tests (success, not found, validation, options)
-  - **Total: 25 tests, all passing**
+  - `test_api/test_publisher.py`: 9 tests (

@@ -39,6 +39,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '一键发布', requireAuth: true },
   },
   {
+    path: '/trending',
+    name: 'trending',
+    component: () => import('@/views/TrendingView.vue'),
+    meta: { title: '热榜发现', requireAuth: true },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
@@ -54,7 +60,7 @@ const router = createRouter({
 // ── Navigation guard ────────────────────────────────────────────────────────
 router.beforeEach((to, _from, next) => {
   // Set page title
-  document.title = `${to.meta.title ?? 'HotRewrite'} - 热文改写平台`
+  document.title = `${to.meta.title ?? '信息实验室'} - 信息实验室`
 
   const token = localStorage.getItem('access_token')
   const requireAuth = to.meta.requireAuth as boolean | undefined
