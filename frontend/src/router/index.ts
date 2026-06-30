@@ -45,6 +45,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '热榜发现', requireAuth: true },
   },
   {
+    path: '/monitor',
+    name: 'monitor',
+    component: () => import('@/views/MonitorView.vue'),
+    meta: { title: '竞品监控', requireAuth: true },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
