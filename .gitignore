@@ -5,6 +5,7 @@ _diag_*.py
 _fix_*.py
 _test_*.py
 test_*.py
+!backend/tests/test_*.py
 debug_*.py
 fix_*.py
 verify_*.py

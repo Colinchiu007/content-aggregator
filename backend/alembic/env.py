@@ -12,7 +12,7 @@ from app.config import get_settings
 from app.database import Base
 
 # 导入所有模型，确保 Base.metadata 包含全部表
-from app.models import User, Article, PublishLog  # noqa: F401
+from app.models import User, Article, PublishLog, MonitorSource, MonitorArticle  # noqa: F401
 
 # Alembic Config 对象
 config = context.config
