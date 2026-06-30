@@ -1,6 +1,6 @@
 """v1 → v2 采集器桥接模块
 
-将 src/content_aggregator/sources/collectors/ 下的 14 个 v1 采集器
+将 src/content_aggregator/sources/collectors/ 下的 15 个 v1 采集器
 桥接到 v2 的 app/services/collect.py 管道中。
 
 设计原则:
