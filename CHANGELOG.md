@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **last30days 海外多源搜索采集器** — `Last30DaysCollector` 并行搜索 Reddit/HN/GitHub/Polymarket，支持 engagement 归一化 (log10)、加权 RRF 融合排序、30 天新鲜度衰减
 - **last30days 桥接注册** — `collect_bridge.py` 硬依赖化，与其余 14 个 v1 采集器同步注册
-- **last30days 测试覆盖** — 32 项单元测试（normalize_engagement/compute_freshness_score/rrf_score/并行采集/错误源恢复/去重/限流）
+- **last30days 测试覆盖** — 43 项单元测试（normalize_engagement/compute_freshness_score/rrf_score/并行采集/错误源恢复/去重/限流/评分公式验证）
+
 - **Alembic 迁移链修复** — 三层链 `000_init → 2f5952d46af4(空桩) → 001`：`000_init` 创建基表（users/articles/publish_logs/tasks），`2f5952d46af4` 为空桩过渡，`001` 创建 monitor 表。修复 FUSE 导致的 `down_revision` 错乱问题
 - **v1 采集器桥接** (`services/collect_bridge.py`) — 懒加载 12+ v1 采集器（YouTube/Twitter/WeChat/抖音/小红书等），支持单源采集与并行全源采集
 - **测试覆盖扩展** — publisher orchestrator 集成测试（mock 成功+失败路径）+ collect_bridge 8 测试用例
