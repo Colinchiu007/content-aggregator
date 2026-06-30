@@ -16,10 +16,18 @@ def get_celery_app():
         return None
 
 
-celery_app = get_celery_app()
+# ── ca_rewrite_article: always defined (placeholder when Celery is unavailable) ──
 
-
-if celery_app is not None:
+def _rewrite_article_factory(celery_app):
+    """创建 ca_rewrite_article Celery 任务（或占位函数）"""
+    if celery_app is None:
+        # Placeholder when Celery is not installed
+        def placeholder_task(*args, **kwargs):
+            logger.warning("ca_rewrite_article: Celery 不可用，任务无法执行")
+            return None
+        placeholder_task.delay = lambda *args, **kwargs: None
+        placeholder_task.apply_async = lambda *args, **kwargs: None
+        return placeholder_task
 
     @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, name="ca_rewrite_article")
     def ca_rewrite_article(self, article_id: str, style: str = "casual"):
@@ -48,30 +56,88 @@ if celery_app is not None:
                     )
                     article.rewrite_style = style
                     article.result_content = rewrite_result.result_content
-                    article.word_count_result = rewrite_result.word_count
-                    await db.commit()
-                return {"status": "success", "article_id": article_id}
-
-            result = asyncio.run(_run())
-            logger.info(f"[ca_rewrite_article] 改写完成: article_id={article_id}")
-            return result
+            asyncio.run(_run())
+            return {"status": "success", "article_id": article_id}
         except Exception as e:
             logger.error(f"[ca_rewrite_article] 改写失败: {e}")
             countdown = 60 * (2 ** self.request.retries)
             raise self.retry(exc=e, countdown=countdown)
 
-    @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, name="ca_publish_to_wx")
-    def ca_publish_to_wx(self, article_id: str, platform: str = "weixin_article"):
-        """异步发布到指定平台"""
-        import asyncio
-        from app.services.publisher import _execute_platform_publish
+    return ca_rewrite_article
 
-        logger.info(f"[ca_publish_to_wx] 开始发布: article_id={article_id}, platform={platform}")
+
+# ── ca_collect_monitors: 竞品监控定时采集 ──
+
+def _collect_monitors_factory(celery_app):
+    """创建 ca_collect_monitors Celery 任务（或占位函数）"""
+    if celery_app is None:
+        def placeholder_task(*args, **kwargs):
+            logger.warning("ca_collect_monitors: Celery 不可用，任务无法执行")
+            return None
+        placeholder_task.delay = lambda *args, **kwargs: None
+        placeholder_task.apply_async = lambda *args, **kwargs: None
+        return placeholder_task
+
+    @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, name="ca_collect_monitors")
+    def ca_collect_monitors(self):
+        """定时采集所有活跃监控源的最新文章"""
+        import asyncio
+        from datetime import datetime, timezone
+
+        logger.info("[ca_collect_monitors] 开始采集监控源")
         try:
-            result = asyncio.run(_execute_platform_publish(article_id, platform))
-            logger.info(f"[ca_publish_to_wx] 发布完成: article_id={article_id}, platform={platform}")
-            return {"status": "success", "article_id": article_id, "platform": platform}
+            async def _run():
+                from app.database import AsyncSessionLocal
+                from app.models.monitor_source import MonitorSource
+                from app.models.monitor_article import MonitorArticle
+                from sqlalchemy import select
+
+                async with AsyncSessionLocal() as db:
+                    # 查询所有活跃监控源
+                    result = await db.execute(
+                        select(MonitorSource).where(MonitorSource.is_active == True)  # noqa: E712
+                    )
+                    sources = result.scalars().all()
+                    logger.info(f"[ca_collect_monitors] 发现 {len(sources)} 个活跃监控源")
+
+                    total_new = 0
+                    for source in sources:
+                        try:
+                            # Placeholder: 模拟采集逻辑
+                            logger.info(
+                                f"[ca_collect_monitors] 采集: source={source.name}, "
+                                f"type={source.source_type}, id={source.id}"
+                            )
+
+                            # 更新 last_collected_at
+                            source.last_collected_at = datetime.now(timezone.utc)
+
+                        except Exception as e:
+                            logger.error(
+                                f"[ca_collect_monitors] 采集失败: source={source.name}, "
+                                f"error={e}"
+                            )
+
+                    await db.commit()
+                    return {
+                        "status": "success",
+                        "total_sources": len(sources),
+                        "new_articles": total_new,
+                    }
+
+            result = asyncio.run(_run())
+            logger.info(f"[ca_collect_monitors] 采集完成: {result}")
+            return result
         except Exception as e:
-            logger.error(f"[ca_publish_to_wx] 发布失败: {e}")
+            logger.error(f"[ca_collect_monitors] 采集失败: {e}")
             countdown = 60 * (2 ** self.request.retries)
             raise self.retry(exc=e, countdown=countdown)
+
+    return ca_collect_monitors
+
+
+# ── Module-level exports (always available) ──
+
+celery_app = get_celery_app()
+ca_rewrite_article = _rewrite_article_factory(celery_app)
+ca_collect_monitors = _collect_monitors_factory(celery_app)
