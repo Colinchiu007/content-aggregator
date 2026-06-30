@@ -20,7 +20,7 @@ const editedContent = ref(props.rewritten)
 
 const originalLines = computed(() => props.original.split('\n'))
 const rewrittenLines = computed(() =>
-  (editingRewritten.value || props.rewritten).split('\n'),
+  props.rewritten.split('\n'),
 )
 
 function toggleEdit() {

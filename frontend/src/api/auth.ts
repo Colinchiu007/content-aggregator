@@ -1,5 +1,5 @@
 import api from './index'
-import type { ApiResponse, LoginRequest, RegisterRequest, AuthResponse } from '@/types'
+import type { ApiResponse, LoginRequest, RegisterRequest, AuthResponse, User } from '@/types'
 
 const AUTH = '/auth'
 
@@ -18,7 +18,7 @@ export async function register(data: RegisterRequest): Promise<ApiResponse<AuthR
   return res.data
 }
 
-export async function getMe(): Promise<ApiResponse<typeof import('@/types').User>> {
+export async function getMe(): Promise<ApiResponse<User>> {
   const res = await api.get(`${AUTH}/me`)
   return res.data
 }

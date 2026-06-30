@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import {
-  HomeFilled, EditPen, Clock, Setting, Fold, Expand, Moon, Sunny, Fire, TrendCharts,
+  HomeFilled, EditPen, Clock, Setting, Fold, Expand, Moon, Sunny, Collection, TrendCharts,
 } from '@element-plus/icons-vue'
 
 const props = defineProps<{ collapsed: boolean }>()
@@ -17,7 +17,7 @@ const activeRoute = computed(() => router.currentRoute.value.path)
 const menuItems = [
   { path: '/', icon: HomeFilled, label: '首页' },
   { path: '/rewrite', icon: EditPen, label: 'AI 改写' },
-  { path: '/trending', icon: Fire, label: '热榜发现' },
+  { path: '/trending', icon: Collection, label: '热榜发现' },
   { path: '/monitor', icon: TrendCharts, label: '竞品监控' },
   { path: '/history', icon: Clock, label: '历史记录' },
   { path: '/settings', icon: Setting, label: '设置' },

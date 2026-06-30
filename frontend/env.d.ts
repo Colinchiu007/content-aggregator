@@ -14,3 +14,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+declare module "element-plus/dist/locale/zh-cn.mjs" {
+  import { Language } from "element-plus/es/locale"
+  const lang: Language
+  export default lang
+}
