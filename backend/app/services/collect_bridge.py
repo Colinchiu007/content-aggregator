@@ -49,6 +49,7 @@ def _lazy_load_collectors() -> dict[str, type]:
             WangYiCollector,
             WeiboHotCollector,
             DouyinHotCollector,
+            Last30DaysCollector,
         )
 
         _COLLECTOR_MAP["rss"] = RSSCollector
@@ -63,16 +64,7 @@ def _lazy_load_collectors() -> dict[str, type]:
         _COLLECTOR_MAP["wangyi"] = WangYiCollector
         _COLLECTOR_MAP["weibo_hot"] = WeiboHotCollector
         _COLLECTOR_MAP["douyin_hot"] = DouyinHotCollector
-
-        # last30days_collector 未在 __init__.py 注册，单独导入
-        try:
-            from content_aggregator.sources.collectors.last30days_collector import (  # type: ignore[import-untyped]
-                Last30DaysCollector,
-            )
-
-            _COLLECTOR_MAP["last30days"] = Last30DaysCollector
-        except (ImportError, AttributeError) as e:
-            logger.info("last30days 采集器未安装（可选）: %s", e)
+        _COLLECTOR_MAP["last30days"] = Last30DaysCollector
 
         logger.info(
             "v1 采集器桥接已加载: %d 个平台", len(_COLLECTOR_MAP)
