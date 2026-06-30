@@ -136,8 +136,41 @@ def _collect_monitors_factory(celery_app):
     return ca_collect_monitors
 
 
+
+# ── ca_publish_to_wx: 平台发布任务 ──
+
+def _publish_factory(celery_app):
+    """创建 ca_publish_to_wx Celery 任务（或占位函数）"""
+    if celery_app is None:
+        def placeholder_task(*args, **kwargs):
+            logger.warning("ca_publish_to_wx: Celery 不可用，任务无法执行")
+            return None
+        placeholder_task.delay = lambda *args, **kwargs: None
+        placeholder_task.apply_async = lambda *args, **kwargs: None
+        return placeholder_task
+
+    @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, name="ca_publish_to_wx")
+    def ca_publish_to_wx(self, article_id: str, platform: str):
+        """异步执行平台发布 — 通过 orchestrator API 转发"""
+        import asyncio
+        from app.services.publisher import _execute_platform_publish
+
+        logger.info(f"[ca_publish_to_wx] 开始发布: article_id={article_id}, platform={platform}")
+        try:
+            result = asyncio.run(_execute_platform_publish(article_id, platform))
+            logger.info(f"[ca_publish_to_wx] 发布完成: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"[ca_publish_to_wx] 发布失败: {e}")
+            countdown = 60 * (2 ** self.request.retries)
+            raise self.retry(exc=e, countdown=countdown)
+
+    return ca_publish_to_wx
+
+
 # ── Module-level exports (always available) ──
 
 celery_app = get_celery_app()
 ca_rewrite_article = _rewrite_article_factory(celery_app)
 ca_collect_monitors = _collect_monitors_factory(celery_app)
+ca_publish_to_wx = _publish_factory(celery_app)

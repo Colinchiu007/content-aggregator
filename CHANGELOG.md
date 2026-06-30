@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- **Alembic 迁移链修复** — 三层链 `000_init → 2f5952d46af4(空桩) → 001`：`000_init` 创建基表（users/articles/publish_logs/tasks），`2f5952d46af4` 为空桩过渡，`001` 创建 monitor 表。修复 FUSE 导致的 `down_revision` 错乱问题
+- **v1 采集器桥接** (`services/collect_bridge.py`) — 懒加载 12+ v1 采集器（YouTube/Twitter/WeChat/抖音/小红书等），支持单源采集与并行全源采集
+- **测试覆盖扩展** — publisher orchestrator 集成测试（mock 成功+失败路径）+ collect_bridge 8 测试用例
+- **ca_publish_to_wx Celery 任务** — 新增 `ca_publish_to_wx` 任务调用 `_execute_platform_publish` 通过 orchestrator API 转发发布请求
+
+### Fixed
+- **全量回归验证** — 62/62 测试 ALL GREEN（证明所有模块接口契约一致）
+- **FUSE git 损坏恢复流程** — index 损坏后通过 /tmp 克隆提交再推送的完整流程已验证
+
+
+
+### Fixed
+- **Model import sync** — `Task` model added to `models/__init__.py` and `alembic/env.py` imports, ensuring all 6 ORM tables (users, articles, publish_logs, tasks, monitor_sources, monitor_articles) are registered in Alembic metadata
+- **Test infrastructure validated** — Full regression 60/60 tests passing (up from 52 after Task model import fix)
 
 - **热榜发现模块（F-13 集成路线）** — TrendScope → content-aggregator 热榜集成
   - `GET /api/v1/trending/platforms` — 获取热门平台列表（代理 TrendScope）

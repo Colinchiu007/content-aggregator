@@ -1,12 +1,14 @@
 """多平台发布服务 — 任务创建与状态查询
 
 Phase 1: 为每个平台创建 PublishLog 记录并异步派发 Celery 任务执行实际发布。
+Phase 2: _execute_platform_publish 通过 orchestrator API 转发发布请求。
 """
 
 import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
+import httpx
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
@@ -129,13 +131,64 @@ async def get_publish_status(article_id: UUID) -> dict:
 async def _execute_platform_publish(article_id: str, platform: str) -> dict:
     """执行单个平台的实际发布操作
 
-    Phase 2: 集成各平台实际 API 调用。
-    当前版本：更新 PublishLog 状态为 success。
+    通过 orchestrator API（POST /api/jobs/publish）将发布请求转发到对应的发布模块。
+    orchestrator 不可达时标记为 failed 但不抛出异常（允许 Celery 重试机制处理）。
+
+    Args:
+        article_id: 文章 UUID 字符串
+        platform: 目标平台标识
+
+    Returns:
+        dict: {"status": str, "article_id": str, "platform": str, "orchestrator_task_id": str | None}
     """
     import uuid as _uuid
 
+    from app.config import get_settings
+
+    settings = get_settings()
+    orchestrator_url = settings.ORCHESTRATOR_API_URL.rstrip("/")
+
     article_uuid = _uuid.UUID(article_id)
 
+    # 调用 orchestrator 发布 API
+    orchestrator_task_id = None
+    publish_ok = False
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{orchestrator_url}/api/jobs/publish",
+                json={
+                    "article_id": article_id,
+                    "platforms": [platform],
+                },
+            )
+            resp.raise_for_status()
+            result_data = resp.json()
+            orchestrator_task_id = result_data.get("task_id")
+            publish_ok = True
+            logger.info(
+                "Orchestrator 发布成功: article=%s, platform=%s, task_id=%s",
+                article_id, platform, orchestrator_task_id,
+            )
+    except httpx.RequestError as e:
+        logger.error(
+            "Orchestrator 不可达: url=%s, article=%s, platform=%s, error=%s",
+            orchestrator_url, article_id, platform, e,
+        )
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "Orchestrator 返回错误: status=%s, article=%s, platform=%s, body=%s",
+            e.response.status_code, article_id, platform, e.response.text,
+        )
+    except Exception as e:
+        logger.exception(
+            "调用 Orchestrator 发布 API 时发生未知异常: article=%s, platform=%s",
+            article_id, platform,
+        )
+
+    status_val = "success" if publish_ok else "failed"
+
+    # 更新 PublishLog 状态
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(PublishLog).where(
@@ -145,11 +198,23 @@ async def _execute_platform_publish(article_id: str, platform: str) -> dict:
         )
         log = result.scalar_one_or_none()
         if not log:
-            logger.warning(f"未找到发布日志: article={article_id}, platform={platform}")
-            return {"status": "not_found", "article_id": article_id, "platform": platform}
+            logger.warning("未找到发布日志: article=%s, platform=%s", article_id, platform)
+            return {
+                "status": "not_found",
+                "article_id": article_id,
+                "platform": platform,
+                "orchestrator_task_id": orchestrator_task_id,
+            }
 
-        log.status = "success"
-        log.published_at = datetime.now(timezone.utc)
+        log.status = status_val
+        log.error_message = None if publish_ok else f"Orchestrator API 调用失败"
+        if publish_ok:
+            log.published_at = datetime.now(timezone.utc)
         await db.commit()
 
-    return {"status": "success", "article_id": article_id, "platform": platform}
+    return {
+        "status": status_val,
+        "article_id": article_id,
+        "platform": platform,
+        "orchestrator_task_id": orchestrator_task_id,
+    }

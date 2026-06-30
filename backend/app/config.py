@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # --- TrendScope ---
     TRENDSCOPE_API_URL: str = "http://localhost:8001"
 
+    # --- Orchestrator ---
+    ORCHESTRATOR_API_URL: str = "http://localhost:8000"
+
     # --- 项目路径 ---
     @property
     def PROJECT_ROOT(self) -> Path:
