@@ -7,8 +7,10 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
+import httpx
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.article import Article
 from app.models.publish_log import PublishLog
@@ -75,9 +77,9 @@ async def create_publish_tasks(
     celery_app = _get_celery_app()
     if celery_app is not None:
         try:
-            from app.tasks import ca_publish_to_wx
+            from app.tasks import ca_publish_to_platform
             for platform in platforms:
-                async_result = ca_publish_to_wx.delay(
+                async_result = ca_publish_to_platform.delay(
                     article_id=str(article_id),
                     platform=platform,
                 )
@@ -127,15 +129,25 @@ async def get_publish_status(article_id: UUID) -> dict:
 
 
 async def _execute_platform_publish(article_id: str, platform: str) -> dict:
-    """执行单个平台的实际发布操作
+    """执行单个平台的实际发布操作 — 调用 orchestrator publish API
 
-    Phase 2: 集成各平台实际 API 调用。
-    当前版本：更新 PublishLog 状态为 success。
+    Phase 2: 集成了 orchestrator 发布 API 调用。
+    通过环境变量 ORCHESTRATOR_BASE_URL 配置 orchestrator 地址。
+
+    Args:
+        article_id: 文章 ID (UUID 字符串)
+        platform: 目标平台 (wechat / zhihu / toutiao 等)
+
+    Returns:
+        dict: {status, article_id, platform, orchestrator_task_id?, error?}
     """
     import uuid as _uuid
 
     article_uuid = _uuid.UUID(article_id)
+    settings = get_settings()
+    orchestrator_url = f"{settings.ORCHESTRATOR_BASE_URL}/api/jobs/publish"
 
+    # 先更新本地 PublishLog 状态为 running
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(PublishLog).where(
@@ -148,8 +160,49 @@ async def _execute_platform_publish(article_id: str, platform: str) -> dict:
             logger.warning(f"未找到发布日志: article={article_id}, platform={platform}")
             return {"status": "not_found", "article_id": article_id, "platform": platform}
 
-        log.status = "success"
-        log.published_at = datetime.now(timezone.utc)
-        await db.commit()
+        # 通过 orchestrator API 发布
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    orchestrator_url,
+                    json={
+                        "article_id": article_id,
+                        "platforms": [platform],
+                    },
+                    headers={
+                        "Content-Type": "application/json",
+                    },
+                )
+                resp.raise_for_status()
+                orchestrator_result = resp.json()
 
-    return {"status": "success", "article_id": article_id, "platform": platform}
+            log.status = "success"
+            log.published_at = datetime.now(timezone.utc)
+            await db.commit()
+
+            logger.info(
+                f"发布成功: article={article_id}, platform={platform}, "
+                f"orchestrator_task={orchestrator_result.get('task_id')}"
+            )
+            return {
+                "status": "success",
+                "article_id": article_id,
+                "platform": platform,
+                "orchestrator_task_id": orchestrator_result.get("task_id"),
+            }
+
+        except httpx.HTTPStatusError as e:
+            error_msg = f"Orchestrator 返回错误: HTTP {e.response.status_code}"
+            log.status = "failed"
+            log.error_message = error_msg
+            await db.commit()
+            logger.error(f"发布失败: {error_msg}")
+            return {"status": "failed", "article_id": article_id, "platform": platform, "error": error_msg}
+
+        except httpx.RequestError as e:
+            error_msg = f"无法连接到 Orchestrator: {e}"
+            log.status = "failed"
+            log.error_message = error_msg
+            await db.commit()
+            logger.error(f"发布失败: {error_msg}")
+            return {"status": "failed", "article_id": article_id, "platform": platform, "error": error_msg}

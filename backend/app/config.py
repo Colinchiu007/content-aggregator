@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     PORT: int = 8000
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
+    # --- Orchestrator ---
+    ORCHESTRATOR_BASE_URL: str = "http://localhost:8000"
+
     # --- TrendScope ---
     TRENDSCOPE_API_URL: str = "http://localhost:8001"
 

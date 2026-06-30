@@ -1,4 +1,7 @@
-"""发布 API 测试 — POST /api/v1/publish/ + GET /api/v1/publish/status/{task_id}"""
+"""发布 API 测试 — POST /api/v1/publish/ + GET /api/v1/publish/status/{task_id}
+
+同时包含 _execute_platform_publish 的 orchestrator 集成测试。
+"""
 
 import uuid
 from unittest.mock import AsyncMock, MagicMock
@@ -133,3 +136,98 @@ class TestPublishStatus:
         """无效 UUID 应返回 422"""
         resp = await self.client.get("/api/v1/publish/status/not-a-uuid")
         assert resp.status_code == 422
+
+
+class TestExecutePlatformPublish:
+    """_execute_platform_publish — orchestrator API 集成测试"""
+
+    @pytest.mark.asyncio
+    async def test_execute_publish_success(self, monkeypatch):
+        """调用 orchestrator API 成功时应标记为 success"""
+        from app.services.publisher import _execute_platform_publish
+
+        # Mock DB session for publisher module
+        mock_log = MagicMock()
+        mock_log.status = "pending"
+        mock_log.platform = "wechat"
+
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(
+            return_value=MockScalarResult(scalar_one=mock_log)
+        )
+        mock_session.flush = AsyncMock()
+        mock_session.commit = AsyncMock()
+        mock_session.rollback = AsyncMock()
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session_factory = MagicMock(return_value=mock_cm)
+        monkeypatch.setattr("app.services.publisher.AsyncSessionLocal", mock_session_factory)
+
+        # Mock httpx.AsyncClient POST
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json = MagicMock(return_value={
+            "task_id": "orch-task-001",
+            "status": "pending",
+            "platforms": ["wechat_mp"],
+        })
+
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
+        mock_client_instance.post = AsyncMock(return_value=mock_response)
+
+        monkeypatch.setattr("httpx.AsyncClient", MagicMock(return_value=mock_client_instance))
+
+        result = await _execute_platform_publish(
+            article_id=str(uuid.uuid4()),
+            platform="wechat",
+        )
+        assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_execute_publish_orchestrator_unreachable(self, monkeypatch):
+        """Orchestrator 不可达时应标记为 failed"""
+        from app.services.publisher import _execute_platform_publish
+        import httpx
+
+        # Mock DB session for publisher module
+        mock_log = MagicMock()
+        mock_log.status = "pending"
+        mock_log.platform = "wechat"
+
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(
+            return_value=MockScalarResult(scalar_one=mock_log)
+        )
+        mock_session.flush = AsyncMock()
+        mock_session.commit = AsyncMock()
+        mock_session.rollback = AsyncMock()
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session_factory = MagicMock(return_value=mock_cm)
+        monkeypatch.setattr("app.services.publisher.AsyncSessionLocal", mock_session_factory)
+
+        # Mock httpx to raise connection error
+        mock_client_instance = AsyncMock()
+        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
+        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
+        mock_client_instance.post = AsyncMock(
+            side_effect=httpx.RequestError("Connection refused")
+        )
+
+        monkeypatch.setattr("httpx.AsyncClient", MagicMock(return_value=mock_client_instance))
+
+        result = await _execute_platform_publish(
+            article_id=str(uuid.uuid4()),
+            platform="wechat",
+        )
+        assert result["status"] == "failed"
+        assert "error" in result
