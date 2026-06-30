@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     PORT: int = 8000
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
+    # --- TrendScope ---
+    TRENDSCOPE_API_URL: str = "http://localhost:8001"
+
     # --- 项目路径 ---
     @property
     def PROJECT_ROOT(self) -> Path:
