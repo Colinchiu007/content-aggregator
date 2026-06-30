@@ -52,10 +52,11 @@ def sample_user_token(make_token, sample_user_id) -> str:
 # ---------------------------------------------------------------------------
 class MockScalarResult:
     """Mock for SQLAlchemy Result.scalar / .scalar_one_or_none / .scalars().all()"""
-    def __init__(self, scalar_val=None, scalar_one=None, scalars_list=None):
+    def __init__(self, scalar_val=None, scalar_one=None, scalars_list=None, scalars_first=None):
         self._scalar_val = scalar_val
         self._scalar_one = scalar_one
         self._scalars_list = scalars_list or []
+        self._scalars_first = scalars_first
 
     def scalar(self):
         return self._scalar_val
@@ -67,6 +68,8 @@ class MockScalarResult:
         class _Scalars:
             def all(_):
                 return self._scalars_list
+            def first(_):
+                return self._scalars_first
         return _Scalars()
 
 
