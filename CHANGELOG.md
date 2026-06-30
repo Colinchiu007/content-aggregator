@@ -16,6 +16,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 侧边栏「热榜发现」导航入口
   - 配置 `TRENDSCOPE_API_URL` 连接 TrendScope 服务
 
+## [Unreleased]
+
+### Added
+- **竞品监控（F-12）** — 支持用户添加竞品账号，定期采集最新文章
+  - `MonitorSource` / `MonitorArticle` 数据模型 + Alembic 迁移
+  - `GET /api/v1/monitors` — 监控源 CRUD（分页 + 搜索 + 类型筛选）
+  - `GET /api/v1/monitor-articles` — 监控文章列表（按源筛选，按采集时间倒序）
+  - `POST /api/v1/monitor-articles/{id}/read` — 标记已读
+  - `POST /api/v1/monitor-articles/{id}/rewrite` — 一键改写（异步 Celery 任务）
+  - `ca_collect_monitors` — Celery 定时采集任务（占位实现）
+  - 前端 MonitorView.vue — 监控源管理 + 文章列表双 Tab 页面
+  - 前端 /monitor 路由 + 侧边栏「竞品监控」入口（TrendCharts 图标）
+  - PRD 同步：F-12 状态更新为 ✅ 已完成
+
+
 ### Added
 - **PRD 同步** — 更新 v1.5.0~v1.8.0 功能状态，5 项 v1.5.0 功能从 🚧 → ✅
 - **YouTube 采集排序选项** — 后端 API + 前端 SettingsView 下拉框配置
