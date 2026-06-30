@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 import httpx
-import trafilatura
 
 
 @dataclass
@@ -37,6 +36,7 @@ async def collect_url(url: str, timeout: int = 30) -> CollectResult:
     Uses trafilatura for HTML → Markdown extraction.
     Raises ValueError on fetch failure.
     """
+    import trafilatura
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         headers = {
             "User-Agent": (
