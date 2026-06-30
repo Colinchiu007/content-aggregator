@@ -42,6 +42,9 @@ class User(Base):
     publish_logs: Mapped[list["PublishLog"]] = relationship(
         "PublishLog", back_populates="user", lazy="selectin"
     )
+    monitor_sources: Mapped[list["MonitorSource"]] = relationship(
+        "MonitorSource", back_populates="user", lazy="selectin"
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username={self.username!r})>"

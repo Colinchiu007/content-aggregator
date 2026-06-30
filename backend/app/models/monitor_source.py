@@ -36,6 +36,9 @@ class MonitorSource(Base):
     articles: Mapped[list["MonitorArticle"]] = relationship(
         "MonitorArticle", back_populates="source", lazy="selectin"
     )
+    user: Mapped["User"] = relationship(
+        "User", back_populates="monitor_sources"
+    )
 
     def __repr__(self) -> str:
         return f"<MonitorSource(id={self.id}, name={self.name!r}, type={self.source_type!r})>"
