@@ -13,7 +13,6 @@ from content_aggregator.sources.collectors.api_collector import APICollector
 from content_aggregator.sources.collectors.wangyi_collector import WangYiCollector
 from content_aggregator.sources.collectors.weibo_hot_collector import WeiboHotCollector
 from content_aggregator.sources.collectors.douyin_hot_collector import DouyinHotCollector
-from content_aggregator.sources.collectors.last30days_collector import Last30DaysCollector
 
 __all__ = [
     "BaseCollector",
@@ -30,5 +29,4 @@ __all__ = [
     "APICollector",
     "WangYiCollector",
     "WeiboHotCollector",
-    "Last30DaysCollector",
 ]

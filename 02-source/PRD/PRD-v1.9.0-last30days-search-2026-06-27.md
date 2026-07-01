@@ -2,8 +2,8 @@
 
 > **创建日期**：2026-06-27  
 > **创建人**：Claude  
-> **审批人**：Colin Chiu  
-> **状态**：已审批  
+> **审批人**：待审批  
+> **状态**：草案  
 > **关联项目**：PROJECT-002（last30days 海外多源搜索集成）
 
 ---
@@ -80,7 +80,7 @@ Engagement 归一化：
 | 文件 | 说明 |
 |------|------|
 | `src/.../collectors/last30days_collector.py` | 主采集器 (380 行) |
-| `tests/test_last30days_collector.py` | 测试 (35 项) |
+| `tests/test_last30days_collector.py` | 测试 (32 项) |
 
 ---
 
@@ -94,7 +94,7 @@ Engagement 归一化：
 - [x] 未知源自动跳过并告警
 - [x] 无有效源时返回空列表
 - [x] 基类 collect() 错误处理正常（网络错误优雅跳过）
-- [x] 35 项单元测试全部通过
+- [x] 32 项单元测试全部通过
 
 ---
 
