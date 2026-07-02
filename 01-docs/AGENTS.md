@@ -60,45 +60,14 @@ MVP 拆成 ≤4h 的任务，标注依赖关系。
 - pytest 全部通过
 - git 提交并 tag
 
-## 质量门禁
 
-**PRD 阶段**：MVP 范围清晰 / API 端点明确 / 验收标准可验证
-**设计阶段**：数据流设计完整 / 简单方案优先
-**开发阶段**：测试全通过 / 手动验证核心功能
-**Review 阶段**：CRITICAL 问题已修复 / AI API 安全审查通过
+## 详细规范
 
-## TDD 流程
+本文档只包含开发流程框架。详细规范已拆分到 `references/` 子目录：
 
-```
-RED   → 在 backend/tests/ 下写失败测试（ASGITransport 模拟请求）
-GREEN → 最小实现让测试通过
-REFACTOR → 重构，保持测试通过
-```
-
-### 测试规范
-
-```python
-# backend/tests/test_api/
-async def test_collect_url(async_client):
-    resp = await async_client.post("/api/v1/collect/url", json={"url": "https://example.com"})
-    assert resp.status_code == 200
-    assert "title" in resp.json()
-
-async def test_rewrite(async_client):
-    resp = await async_client.post("/api/v1/rewrite/", json={
-        "content": "原始内容", "style": "轻松易懂"
-    })
-    assert resp.status_code == 200
-```
-
-## 提交规范
-
-```
-feat(collector): 添加知乎文章采集
-fix(rewriter): 修复 60s 超时不生效
-docs: 更新 PRD 改写风格章节
-refactor: 统一异常处理
-```
+- **[references/testing.md](01-docs/references/testing.md)** — TDD 流程与测试规范
+- **[references/quality-gates.md](01-docs/references/quality-gates.md)** — 质量门禁详细说明
+- **[references/commits.md](01-docs/references/commits.md)** — 提交规范
 
 ## 文档清单
 

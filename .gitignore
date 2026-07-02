@@ -6,6 +6,7 @@ _fix_*.py
 _test_*.py
 test_*.py
 !backend/tests/test_*.py
+!src/**/tests/test_*.py
 !backend/tests/**/test_*.py
 debug_*.py
 fix_*.py
