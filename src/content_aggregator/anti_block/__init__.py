@@ -8,6 +8,7 @@ from .request_scheduler import RequestScheduler
 from .behavior_simulator import BehaviorSimulator, InteractionType
 from .retry_strategy import RetryStrategy, RetryDecision, RetryStrategyExecutor
 from .anti_block_manager import AntiBlockManager
+from .cdp_browser import CDPBrowserManager, create_cdp_context
 
 __all__ = [
     # 核心管理器
@@ -18,6 +19,10 @@ __all__ = [
     "RequestScheduler",
     "BehaviorSimulator",
     "RetryStrategyExecutor",
+    
+    # CDP 浏览器管理
+    "CDPBrowserManager",
+    "create_cdp_context",
     
     # 数据模型
     "Proxy",
@@ -42,6 +47,13 @@ DEFAULT_REQUEST_CONFIG = RequestConfig(
     user_agent_rotation=True,
     referer_enabled=True,
 )
+
+# CDP 默认配置
+DEFAULT_CDP_CONFIG = {
+    "headless": False,
+    "connect_existing": True,
+    "stealth_js_path": None,
+}
 
 DEFAULT_BEHAVIOR_CONFIG = BehaviorConfig(
     enable_scroll=True,
